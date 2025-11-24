@@ -1557,16 +1557,18 @@ hi_done:
 # Clobbers: $a0, $a1, $t0
 ##########################################
 check_column_collision:
-    # Prologue - save return address
-    addi $sp, $sp, -8
-    sw   $ra, 4($sp)
-    sw   $s0, 0($sp)
+    # Prologue - save return address and incoming y
+    addi $sp, $sp, -12
+    sw   $ra, 8($sp)
+    sw   $s0, 4($sp)
+    sw   $s1, 0($sp)
 
     move $s0, $a0            # Save target x position
+    move $s1, $a1            # Save top y position passed in
 
     # Check top cell (x, y)
     move $a0, $s0
-    # $a1 already has y position
+    move $a1, $s1
     jal  check_cell_color
     move $a0, $v0
     jal  is_gem_color
@@ -1574,8 +1576,7 @@ check_column_collision:
 
     # Check middle cell (x, y+1)
     move $a0, $s0
-    lw   $a1, CUR_COL_Y
-    addi $a1, $a1, 1
+    addi $a1, $s1, 1
     jal  check_cell_color
     move $a0, $v0
     jal  is_gem_color
@@ -1583,8 +1584,7 @@ check_column_collision:
 
     # Check bottom cell (x, y+2)
     move $a0, $s0
-    lw   $a1, CUR_COL_Y
-    addi $a1, $a1, 2
+    addi $a1, $s1, 2
     jal  check_cell_color
     move $a0, $v0
     jal  is_gem_color
@@ -1599,11 +1599,11 @@ collision_found:
 
 collision_done:
     # Epilogue
-    lw   $s0, 0($sp)
-    lw   $ra, 4($sp)
-    addi $sp, $sp, 8
+    lw   $s1, 0($sp)
+    lw   $s0, 4($sp)
+    lw   $ra, 8($sp)
+    addi $sp, $sp, 12
     jr   $ra
-
 
 
 
