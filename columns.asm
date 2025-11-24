@@ -363,22 +363,142 @@ draw_scene:
 # Main program
 ############################################################
 main:
-    # I might delete this later
-    jal init_game       # set up the intial column etc.
-    jal draw_scene      # draw grid and start columns 
+    jal init_game
     
-    # Exit (I will do the rest later)
-    li $v0, 10
+    # Game on!
+    j game_loop
+
+
+############################################################
+# game_loop:
+#   - Poll keyboard
+#   - Update column state
+#   - Redraw scene
+#   - Sleep a little
+############################################################
+game_loop:
+    # 1. Handle keyboard input (may change CUR_COL_X/Y or colours)
+    jal handle_input
+
+    # 2. Redraw everything based on updated state
+    jal draw_scene
+
+    # 3. Sleep for a short time (60 fps)
+    li  $v0, 32
+    li  $a0, 16
     syscall
 
+    # 4. Repeat
+    j   game_loop
+    
+    
+##########################################
+# handle_input
+#   - Checks if a key was pressed
+#   - If so, acts on: a, d, w, s, q
+#       a: move column left
+#       d: move column right
+#       s: move column down one row
+#       w: shuffle colours
+#       q: quit game
+##########################################
+handle_input:
+    # Prologue
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $s0, 0($sp)
+    
+    # Load keyboard base addr
+    lw   $t0, ADDR_KBRD
+    
+    # Check "key ready"
+    lw   $t1, 0($t0)
+    beq  $t1, $zero, hi_done
 
-game_loop:
-    # 1a. Check if key has been pressed
-    # 1b. Check which key has been pressed
-    # 2a. Check for collisions
-	# 2b. Update locations (capsules)
-	# 3. Draw the screen
-	# 4. Sleep
+    # A key was pressed
+    lw   $t2, 4($t0)
+    
+    #'a'
+    li   $t3, 'a'
+    beq  $t2, $t3, hi_left
 
-    # 5. Go back to Step 1
-    j game_loop
+    # 'd'
+    li   $t3, 'd'
+    beq  $t2, $t3, hi_right
+
+    # 'w'
+    li   $t3, 'w'
+    beq  $t2, $t3, hi_shuffle
+
+    #'s'
+    li   $t3, 's'
+    beq  $t2, $t3, hi_down
+
+    # 'q'
+    li   $t3, 'q'
+    beq  $t2, $t3, hi_quit
+
+    # ignore
+    j    hi_done
+    
+hi_left:
+    lw   $t4, CUR_COL_X
+    li   $t5, 1
+    ble  $t4, $t5, hi_done
+
+    addi $t4, $t4, -1
+    sw   $t4, CUR_COL_X
+    j    hi_done
+    
+hi_right:
+    lw   $t4, CUR_COL_X
+    lw   $t5, GRID_COLS
+    addi $t5, $t5, -2
+    bge  $t4, $t5, hi_done
+    
+    addi $t4, $t4, 1
+    sw   $t4, CUR_COL_X
+    j    hi_done
+    
+hi_down:
+    lw   $t0, CUR_COL_Y
+
+
+    addi $t1, $t0, 1 
+
+
+    addi $t2, $t1, 2
+
+    lw   $t3, GRID_ROWS
+    addi $t3, $t3, -1
+
+    bge  $t2, $t3, hi_done
+    sw   $t1, CUR_COL_Y
+    j    hi_done
+
+
+hi_shuffle:
+    lw   $t0, CUR_COL0
+    lw   $t1, CUR_COL1
+    lw   $t2, CUR_COL2
+    sw   $t2, CUR_COL0
+    sw   $t0, CUR_COL1
+    sw   $t1, CUR_COL2
+
+    j    hi_done
+    
+hi_quit:
+    li  $v0, 10
+    syscall
+    
+hi_done:
+    lw   $s0, 0($sp)
+    lw   $ra, 4($sp)
+    addi $sp, $sp, 8
+    jr   $ra
+
+
+
+
+
+
