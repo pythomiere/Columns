@@ -865,64 +865,100 @@ chain_reaction_done:
 
 ##############################################################################
 # check_direction_match(x, y, base_color, direction)
-# Check if there are 3 consecutive gems in the given direction
-# Input: $a0 = x, $a1 = y, $a2 = base_color, $a3 = direction (0-7)
-# Output: $v0 = 1 if match found, 0 otherwise
+# Input:  $a0 = x, $a1 = y, $a2 = base_color, $a3 = direction (0-7)
+# Output: $v0 = 1 if this cell is part of a run of >=3 in this direction,
+#                0 otherwise
 ##############################################################################
 check_direction_match:
     # Prologue
-    addi $sp, $sp, -28
-    sw   $ra, 24($sp)
-    sw   $s0, 20($sp)        # x coordinate
-    sw   $s1, 16($sp)        # y coordinate
-    sw   $s2, 12($sp)        # base color
-    sw   $s3, 8($sp)         # direction
-    sw   $s4, 4($sp)         # dx (direction vector x)
-    sw   $s5, 0($sp)         # dy (direction vector y)
+    addi $sp, $sp, -32
+    sw   $ra, 28($sp)
+    sw   $s0, 24($sp)        # base x
+    sw   $s1, 20($sp)        # base y
+    sw   $s2, 16($sp)        # base_color
+    sw   $s3, 12($sp)        # pos_count
+    sw   $s4, 8($sp)         # dx
+    sw   $s5, 4($sp)         # dy
+    sw   $s6, 0($sp)         # neg_count
 
-    move $s0, $a0
-    move $s1, $a1
-    move $s2, $a2
-    move $s3, $a3
+    move $s0, $a0            # base x
+    move $s1, $a1            # base y
+    move $s2, $a2            # base_color
+    move $t0, $a3            # direction (temp only)
 
-    # Get direction vector
-    move $a0, $s3
+    # Get direction vector (dx, dy)
+    move $a0, $t0
     jal  get_direction_vector
-    move $s4, $v0           # $s4 = dx (saved register)
-    move $s5, $v1           # $s5 = dy (saved register)
+    move $s4, $v0            # dx
+    move $s5, $v1            # dy
 
-    # Check first cell in direction
-    add  $a0, $s0, $s4      # x + dx
-    add  $a1, $s1, $s5      # y + dy
+    # Count in +direction
+    li   $s3, 0              # pos_count = 0
+
+    add  $t1, $s0, $s4       # cx = x + dx
+    add  $t2, $s1, $s5       # cy = y + dy
+
+pos_loop:
+    move $a0, $t1
+    move $a1, $t2
+    jal  check_cell_color    # v0 = color at (cx, cy)
+    bne  $v0, $s2, pos_done  # stop when color != base_color
+
+    addi $s3, $s3, 1         # pos_count++
+    add  $t1, $t1, $s4       # cx += dx
+    add  $t2, $t2, $s5       # cy += dy
+    j    pos_loop
+
+pos_done:
+
+    # Count in -direction
+    li   $s6, 0              # neg_count = 0
+
+    sub  $t3, $zero, $s4     # ndx = -dx
+    sub  $t4, $zero, $s5     # ndy = -dy
+
+    add  $t1, $s0, $t3       # cx = x - dx
+    add  $t2, $s1, $t4       # cy = y - dy
+
+neg_loop:
+    move $a0, $t1
+    move $a1, $t2
     jal  check_cell_color
-    bne  $v0, $s2, no_match # Color doesn't match
+    bne  $v0, $s2, neg_done
 
-    # Check second cell in direction  
-    add  $a0, $s0, $s4      # x + dx
-    add  $a1, $s1, $s5      # y + dy
-    add  $a0, $a0, $s4      # x + 2*dx
-    add  $a1, $a1, $s5      # y + 2*dy
-    jal  check_cell_color
-    bne  $v0, $s2, no_match # Color doesn't match
+    addi $s6, $s6, 1         # neg_count++
+    add  $t1, $t1, $t3       # cx += ndx
+    add  $t2, $t2, $t4       # cy += ndy
+    j    neg_loop
 
-    # Match found - return 1
-    li   $v0, 1
-    j    check_direction_done
+neg_done:
+    # total = 1 (center) + pos_count + neg_count
+    add  $t5, $s3, $s6
+    addi $t5, $t5, 1
 
-no_match:
+    li   $t6, 3
+    slt  $t7, $t5, $t6       # t7 = 1 if total < 3
+    bne  $t7, $zero, no_match_cd
+
+    li   $v0, 1              # match
+    j    done_cd
+
+no_match_cd:
     li   $v0, 0
 
-check_direction_done:
+done_cd:
     # Epilogue
-    lw   $s5, 0($sp)
-    lw   $s4, 4($sp)
-    lw   $s3, 8($sp)
-    lw   $s2, 12($sp)
-    lw   $s1, 16($sp)
-    lw   $s0, 20($sp)
-    lw   $ra, 24($sp)
-    addi $sp, $sp, 28
+    lw   $s6, 0($sp)
+    lw   $s5, 4($sp)
+    lw   $s4, 8($sp)
+    lw   $s3, 12($sp)
+    lw   $s2, 16($sp)
+    lw   $s1, 20($sp)
+    lw   $s0, 24($sp)
+    lw   $ra, 28($sp)
+    addi $sp, $sp, 32
     jr   $ra
+
 
 ##############################################################################
 # remove_direction_run(x, y, base_color, direction)
