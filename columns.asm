@@ -299,7 +299,7 @@ draw_walls:
 
     lw   $s2, GRID_ROWS
     lw   $s3, GRID_COLS
-    lw   $t1, COLOR_WALL  # Wall color
+    lw   $t6, COLOR_WALL  # Wall color (keep out of draw_cell clobbers)
 
     # Draw left wall (c = 0, all rows)
     li   $s0, 0          # r = 0
@@ -311,7 +311,7 @@ draw_left_wall_loop:
     lw   $t5, GRID_LEFT
     add  $a0, $t4, $s0          # bitmap_row = GRID_TOP + r
     move $a1, $t5               # bitmap_col = GRID_LEFT + 0
-    move $a2, $t1               # wall colour
+    move $a2, $t6               # wall colour
     
     jal  draw_cell
 
@@ -330,7 +330,7 @@ draw_right_wall_loop:
     lw   $t5, GRID_LEFT
     add  $a0, $t4, $s0          # bitmap_row = GRID_TOP + r
     add  $a1, $t5, $s1          # bitmap_col = GRID_LEFT + (GRID_COLS-1)
-    move $a2, $t1               # wall colour
+    move $a2, $t6               # wall colour
     
     jal  draw_cell
 
@@ -349,7 +349,7 @@ draw_bottom_wall_loop:
     lw   $t5, GRID_LEFT
     add  $a0, $t4, $s0          # bitmap_row = GRID_TOP + (GRID_ROWS-1)
     add  $a1, $t5, $s1          # bitmap_col = GRID_LEFT + c
-    move $a2, $t1               # wall colour
+    move $a2, $t6               # wall colour
     
     jal  draw_cell
 
@@ -1604,6 +1604,5 @@ collision_done:
     lw   $ra, 8($sp)
     addi $sp, $sp, 12
     jr   $ra
-
 
 
