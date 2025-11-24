@@ -2,7 +2,7 @@
 # This file contains our implementation of Columns.
 #
 # Student 1: Elvis Chen, 1011772422
-# Student 2: Frank Fu, Student Number (if applicable)
+# Student 2: Frank Fu, Student Number 1008841372
 #
 # We assert that the code submitted here is entirely our own 
 # creation, and will indicate otherwise when it is not.
@@ -60,6 +60,8 @@ DIRECTION_VECTORS:
     .word -1,  1    # 5: down-left
     .word -1,  0    # 6: left
     .word -1, -1    # 7: up-left
+    
+game_over_msg: .asciiz "game over!\n"
 
 
 ##############################################################################
@@ -290,16 +292,21 @@ grid_done:
 ##########################################
 draw_walls:
     # Save caller registers
-    addi $sp, $sp, -20
-    sw   $ra, 16($sp)
-    sw   $s0, 12($sp)    # r (row)
-    sw   $s1, 8($sp)     # c (column)
-    sw   $s2, 4($sp)     # GRID_ROWS
-    sw   $s3, 0($sp)     # GRID_COLS
+    addi $sp, $sp, -32
+    sw   $ra, 28($sp)
+    sw   $s0, 24($sp)    # r (row)
+    sw   $s1, 20($sp)    # c (column)
+    sw   $s2, 16($sp)    # GRID_ROWS
+    sw   $s3, 12($sp)    # GRID_COLS
+    sw   $s4, 8($sp)     # Wall color
+    sw   $s5, 4($sp)     # GRID_TOP
+    sw   $s6, 0($sp)     # GRID_LEFT
 
     lw   $s2, GRID_ROWS
     lw   $s3, GRID_COLS
-    lw   $t6, COLOR_WALL  # Wall color (keep out of draw_cell clobbers)
+    lw   $s4, COLOR_WALL  # Wall color (saved register)
+    lw   $s5, GRID_TOP    # GRID_TOP (saved register)
+    lw   $s6, GRID_LEFT   # GRID_LEFT (saved register)
 
     # Draw left wall (c = 0, all rows)
     li   $s0, 0          # r = 0
@@ -307,11 +314,9 @@ draw_left_wall_loop:
     bge  $s0, $s2, draw_right_wall  # if r >= GRID_ROWS, done with left wall
     
     # Convert grid (r,0) to bitmap coordinates
-    lw   $t4, GRID_TOP
-    lw   $t5, GRID_LEFT
-    add  $a0, $t4, $s0          # bitmap_row = GRID_TOP + r
-    move $a1, $t5               # bitmap_col = GRID_LEFT + 0
-    move $a2, $t6               # wall colour
+    add  $a0, $s5, $s0          # bitmap_row = GRID_TOP + r
+    move $a1, $s6               # bitmap_col = GRID_LEFT + 0
+    move $a2, $s4               # wall colour
     
     jal  draw_cell
 
@@ -326,11 +331,9 @@ draw_right_wall_loop:
     bge  $s0, $s2, draw_bottom_wall  # if r >= GRID_ROWS, done with right wall
     
     # Convert grid (r, GRID_COLS-1) to bitmap coordinates
-    lw   $t4, GRID_TOP
-    lw   $t5, GRID_LEFT
-    add  $a0, $t4, $s0          # bitmap_row = GRID_TOP + r
-    add  $a1, $t5, $s1          # bitmap_col = GRID_LEFT + (GRID_COLS-1)
-    move $a2, $t6               # wall colour
+    add  $a0, $s5, $s0          # bitmap_row = GRID_TOP + r
+    add  $a1, $s6, $s1          # bitmap_col = GRID_LEFT + (GRID_COLS-1)
+    move $a2, $s4               # wall colour
     
     jal  draw_cell
 
@@ -345,11 +348,9 @@ draw_bottom_wall_loop:
     bge  $s1, $s3, walls_done  # if c >= GRID_COLS, done with bottom wall
     
     # Convert grid (GRID_ROWS-1, c) to bitmap coordinates
-    lw   $t4, GRID_TOP
-    lw   $t5, GRID_LEFT
-    add  $a0, $t4, $s0          # bitmap_row = GRID_TOP + (GRID_ROWS-1)
-    add  $a1, $t5, $s1          # bitmap_col = GRID_LEFT + c
-    move $a2, $t6               # wall colour
+    add  $a0, $s5, $s0          # bitmap_row = GRID_TOP + (GRID_ROWS-1)
+    add  $a1, $s6, $s1          # bitmap_col = GRID_LEFT + c
+    move $a2, $s4               # wall colour
     
     jal  draw_cell
 
@@ -358,12 +359,15 @@ draw_bottom_wall_loop:
 
 walls_done:
     # Restore registers and return
-    lw   $s3, 0($sp)
-    lw   $s2, 4($sp)
-    lw   $s1, 8($sp)
-    lw   $s0, 12($sp)
-    lw   $ra, 16($sp)
-    addi $sp, $sp, 20
+    lw   $s6, 0($sp)
+    lw   $s5, 4($sp)
+    lw   $s4, 8($sp)
+    lw   $s3, 12($sp)
+    lw   $s2, 16($sp)
+    lw   $s1, 20($sp)
+    lw   $s0, 24($sp)
+    lw   $ra, 28($sp)
+    addi $sp, $sp, 32
     jr   $ra
 
 ##########################################
@@ -410,21 +414,49 @@ init_column:
 # create_new_column()
 # Creates a new column with random colors at initial position
 # Sets CUR_COL_X, CUR_COL_Y and three color variables
+# Checks if initial position is occupied - if so, game over
 ##########################################
 create_new_column:
-    # Prologue - save return address only (no $s registers used)
-    addi $sp, $sp, -4
-    sw   $ra, 0($sp)
+    # Prologue - save return address
+    addi $sp, $sp, -12
+    sw   $ra, 8($sp)
+    sw   $s0, 4($sp)
+    sw   $s1, 0($sp)
 
     # Set starting position to middle column, top row
-    lw   $t0, GRID_COLS
-    sra  $t0, $t0, 1          # middle_col = GRID_COLS / 2
-    sw   $t0, CUR_COL_X
+    lw   $s0, GRID_COLS
+    sra  $s0, $s0, 1          # middle_col = GRID_COLS / 2
+    sw   $s0, CUR_COL_X
 
-    li   $t1, 0               # top row
-    sw   $t1, CUR_COL_Y
+    li   $s1, 0               # top row
+    sw   $s1, CUR_COL_Y
 
-    # Generate three random colors for the column
+    # Check if initial position is occupied by checking all three cells
+    # Check top cell (middle, 0)
+    move $a0, $s0
+    move $a1, $s1
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    beq  $v0, 1, game_over
+    
+    # Check middle cell (middle, 1)
+    move $a0, $s0
+    addi $a1, $s1, 1
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    beq  $v0, 1, game_over
+    
+    # Check bottom cell (middle, 2)
+    move $a0, $s0
+    addi $a1, $s1, 2
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    beq  $v0, 1, game_over
+    
+    # No collision - generate three random colors for the column
     jal  get_random_colour
     sw   $v0, CUR_COL0        # Top gem color
 
@@ -435,9 +467,25 @@ create_new_column:
     sw   $v0, CUR_COL2        # Bottom gem color
 
     # Epilogue
-    lw   $ra, 0($sp)
-    addi $sp, $sp, 4
+    lw   $s1, 0($sp)
+    lw   $s0, 4($sp)
+    lw   $ra, 8($sp)
+    addi $sp, $sp, 12
     jr   $ra
+
+##########################################
+# game_over()
+# Prints "game over" message and exits the program
+##########################################
+game_over:
+    # Print "game over" message
+    li   $v0, 4               # syscall 4 = print string
+    la   $a0, game_over_msg
+    syscall
+    
+    # Exit the program
+    li   $v0, 10              # syscall 10 = exit
+    syscall
 
 ##########################################
 # get_random_colour()
@@ -1604,5 +1652,3 @@ collision_done:
     lw   $ra, 8($sp)
     addi $sp, $sp, 12
     jr   $ra
-
-
