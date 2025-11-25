@@ -257,6 +257,11 @@ CUR_COL_Y:  .word 0 # grid row of the TOP
 Cur_Col_Is_Landing: .word 0 # 1=landing, 0=not landing
 CUR_COL_ID: .word 0          # incremented each time a new falling column spawns
 
+# Next-column preview buffer
+NEXT_COL0: .word 0       # top gem colour (preview)
+NEXT_COL1: .word 0       # middle gem colour (preview)
+NEXT_COL2: .word 0       # bottom gem colour (preview)
+
 # Ghost preview state
 GHOST_ACTIVE: .word 0        # 1 if a ghost outline is currently drawn
 GHOST_X: .word 0             # grid x of ghost outline
@@ -280,6 +285,10 @@ Diff_Threshold_Hard:   .word 600
 
 diff_prompt: .asciiz "Select difficulty: 1=Easy, 2=Medium, 3=Hard\n"
 .align 2                   # realign following word data
+
+# Preview panel position (bitmap coordinates)
+PREVIEW_ROW: .word 8
+PREVIEW_COL: .word 40
 
 # Initial stack pointer snapshot (used for clean restarts)
 INIT_SP: .word 0
@@ -616,6 +625,9 @@ init_column:
     jal  get_random_colour
     sw   $v0, CUR_COL2
 
+    # Prepare preview for the upcoming column
+    jal  fill_next_column
+
     lw   $s2, 0($sp)
     lw   $s1, 4($sp)
     lw   $s0, 8($sp)
@@ -675,15 +687,18 @@ create_new_column:
     jal  is_gem_color
     beq  $v0, 1, game_over
     
-    # No collision - generate three random colors for the column
-    jal  get_random_colour
-    sw   $v0, CUR_COL0        # Top gem color
+    # No collision - load previewed colors for the new column
+    lw   $t0, NEXT_COL0
+    sw   $t0, CUR_COL0        # Top gem color
 
-    jal  get_random_colour
-    sw   $v0, CUR_COL1        # Middle gem color
+    lw   $t0, NEXT_COL1
+    sw   $t0, CUR_COL1        # Middle gem color
 
-    jal  get_random_colour
-    sw   $v0, CUR_COL2        # Bottom gem color
+    lw   $t0, NEXT_COL2
+    sw   $t0, CUR_COL2        # Bottom gem color
+
+    # Generate the following preview column
+    jal  fill_next_column
 
     # Epilogue
     lw   $s1, 0($sp)
@@ -753,13 +768,34 @@ get_random_colour:
     li   $a0, 0        # RNG ID
     li   $a1, 6        # max = 6
     syscall            # result index in $a0
-
+    
     # compute address = GEM_COLOURS + index*4
     la   $t0, GEM_COLOURS
     sll  $t1, $a0, 2   # index * 4
     add  $t0, $t0, $t1
     lw   $v0, 0($t0)   # v0 = colour
 
+    jr   $ra
+
+##########################################
+# fill_next_column()
+# Generates a new random column into NEXT_COL*
+##########################################
+fill_next_column:
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+    jal  get_random_colour
+    sw   $v0, NEXT_COL0
+
+    jal  get_random_colour
+    sw   $v0, NEXT_COL1
+
+    jal  get_random_colour
+    sw   $v0, NEXT_COL2
+
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
     jr   $ra
 
 ##########################################
@@ -915,6 +951,50 @@ draw_column:
     lw   $s0, 8($sp)
     lw   $ra, 12($sp)
     addi $sp, $sp, 16
+    jr   $ra
+
+##########################################
+# draw_next_preview()
+# Draws the buffered next column in the preview panel
+##########################################
+draw_next_preview:
+    addi $sp, $sp, -20
+    sw   $ra, 16($sp)
+    sw   $s0, 12($sp)
+    sw   $s1, 8($sp)
+    sw   $s2, 4($sp)
+    sw   $s3, 0($sp)
+
+    lw   $s0, PREVIEW_ROW      # preview row (top)
+    lw   $s1, PREVIEW_COL      # preview column
+
+    # Top preview gem
+    move $a0, $s0
+    move $a1, $s1
+    lw   $s2, NEXT_COL0
+    move $a2, $s2
+    jal  draw_cell
+
+    # Middle preview gem
+    addi $a0, $s0, 1
+    move $a1, $s1
+    lw   $s3, NEXT_COL1
+    move $a2, $s3
+    jal  draw_cell
+
+    # Bottom preview gem
+    addi $a0, $s0, 2
+    move $a1, $s1
+    lw   $t0, NEXT_COL2
+    move $a2, $t0
+    jal  draw_cell
+
+    lw   $s3, 0($sp)
+    lw   $s2, 4($sp)
+    lw   $s1, 8($sp)
+    lw   $s0, 12($sp)
+    lw   $ra, 16($sp)
+    addi $sp, $sp, 20
     jr   $ra
 
 ##########################################
@@ -1185,6 +1265,7 @@ draw_scene:
     # jal draw_grid
 
     jal draw_walls
+    jal draw_next_preview
     
     # Update ghost outline for current falling column
     jal clear_ghost_column
