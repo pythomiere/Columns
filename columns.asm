@@ -61,6 +61,25 @@ DIRECTION_VECTORS:
     .word -1,  0    # 6: left
     .word -1, -1    # 7: up-left
     
+
+# Music configuration (looping Columns theme)
+MUSIC_ENABLED:        .word 1        # 1=play, 0=stop
+MUSIC_NOTE_IDX:       .word 0        # current note index
+MUSIC_TIME_LEFT_MS:   .word 0        # ms until next note
+MUSIC_NOTE_COUNT:     .word 16
+MUSIC_INSTRUMENT:     .word 81       # Lead 1 (square)
+MUSIC_VOLUME:         .word 100      # 0-127
+
+# MIDI pitches for a short Columns-like loop
+MUSIC_THEME_NOTES:
+    .word 76, 74, 72, 71, 72, 74, 76, 79
+    .word 76, 74, 72, 71, 69, 71, 72, 74
+
+# Durations in milliseconds for each note above
+MUSIC_THEME_DURS:
+    .word 180, 180, 180, 180, 180, 180, 240, 240
+    .word 180, 180, 180, 180, 180, 180, 240, 240
+    
 game_over_msg: .asciiz "game over!\n"
 
 
@@ -482,6 +501,9 @@ game_over:
     li   $v0, 4               # syscall 4 = print string
     la   $a0, game_over_msg
     syscall
+
+    # Stop music before exiting
+    jal  music_stop
     
     # Exit the program
     li   $v0, 10              # syscall 10 = exit
@@ -505,6 +527,105 @@ get_random_colour:
     add  $t0, $t0, $t1
     lw   $v0, 0($t0)   # v0 = colour
 
+    jr   $ra
+
+##########################################
+# music_init()
+# Resets music state and starts the first note
+##########################################
+music_init:
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $s0, 0($sp)
+
+    li   $t0, 1
+    sw   $t0, MUSIC_ENABLED      # enable playback
+    sw   $zero, MUSIC_NOTE_IDX   # start at first note
+
+    jal  music_start_current_note
+
+    lw   $s0, 0($sp)
+    lw   $ra, 4($sp)
+    addi $sp, $sp, 8
+    jr   $ra
+
+##########################################
+# music_stop()
+# Disables music playback (used on exit)
+##########################################
+music_stop:
+    sw   $zero, MUSIC_ENABLED
+    jr   $ra
+
+##########################################
+# music_start_current_note()
+# Plays the note at MUSIC_NOTE_IDX and reloads time-left
+##########################################
+music_start_current_note:
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+    lw   $t0, MUSIC_NOTE_IDX
+    sll  $t1, $t0, 2            # index * 4
+
+    la   $t2, MUSIC_THEME_NOTES
+    add  $t2, $t2, $t1
+    lw   $t3, 0($t2)            # pitch
+
+    la   $t4, MUSIC_THEME_DURS
+    add  $t4, $t4, $t1
+    lw   $t5, 0($t4)            # duration (ms)
+    sw   $t5, MUSIC_TIME_LEFT_MS
+
+    lw   $t6, MUSIC_INSTRUMENT
+    lw   $t7, MUSIC_VOLUME
+
+    li   $v0, 33                # play note syscall
+    move $a0, $t3               # pitch
+    move $a1, $t5               # duration in ms
+    move $a2, $t6               # instrument
+    move $a3, $t7               # volume
+    syscall
+
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# music_tick()
+# Called each frame to decrement timer and trigger next note
+##########################################
+music_tick:
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $s0, 0($sp)
+
+    lw   $t0, MUSIC_ENABLED
+    beq  $t0, $zero, mt_done
+
+    lw   $t1, MUSIC_TIME_LEFT_MS
+    li   $t2, 16                # frame time (ms)
+    sub  $t3, $t1, $t2
+    bgtz $t3, mt_store_time
+
+    # Advance to next note and play it
+    lw   $t4, MUSIC_NOTE_IDX
+    addi $t4, $t4, 1
+    lw   $t5, MUSIC_NOTE_COUNT
+    blt  $t4, $t5, mt_store_idx
+    li   $t4, 0                 # wrap to start
+mt_store_idx:
+    sw   $t4, MUSIC_NOTE_IDX
+    jal  music_start_current_note
+    j    mt_done
+
+mt_store_time:
+    sw   $t3, MUSIC_TIME_LEFT_MS
+
+mt_done:
+    lw   $s0, 0($sp)
+    lw   $ra, 4($sp)
+    addi $sp, $sp, 8
     jr   $ra
 
 ##########################################
@@ -572,6 +693,7 @@ init_game:
     sw   $ra, 0($sp)
 
     jal  init_column    # position + random colours
+    jal  music_init     # start background music
 
     lw   $ra, 0($sp)
     addi $sp, $sp, 4
@@ -1434,6 +1556,7 @@ main:
 #   - Poll keyboard
 #   - Update column state
 #   - Redraw scene
+#   - Tick music timer
 #   - Sleep a little
 ############################################################
 game_loop:
@@ -1453,12 +1576,15 @@ game_loop:
     # 4. Redraw everything based on updated state
     jal draw_scene
 
-    # 5. Sleep for a short time (60 fps)
+    # 5. Advance music timer and loop notes
+    jal music_tick
+
+    # 6. Sleep for a short time (60 fps)
     li  $v0, 32
     li  $a0, 16
     syscall
 
-    # 6. Repeat
+    # 7. Repeat
     j   game_loop
 
 ############################################################
@@ -1617,6 +1743,7 @@ hi_pause:
     j pause_loop
 
 hi_quit:
+    jal music_stop
     li  $v0, 10
     syscall
     
