@@ -16,3 +16,5 @@ Hard Feature 5 done
 Working:
 
 Easy Feature 2
+
+Easy Feature 6 (display)
