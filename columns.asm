@@ -57,6 +57,16 @@ SCORE_SIZE: .word 2
 SCORE_COLOR: .word 0x00FFFFFF
 SCORE_SPACING: .word 6
 
+
+#SCORE_VALUE Display Parameters
+SCORE_VALUE_X: .word 5
+SCORE_VALUE_Y: .word 40
+SCORE_VALUE_SIZE: .word 2
+SCORE_VALUE_COLOR: .word 0x00FFFFFF
+SCORE_VALUE_SPACING: .word 6
+SCORE_VALUE_DIGIT: .word 6
+SCORE_VALUE_VALUE: .word 6
+
 char_a_pattern: .word 783  # 783 = 1100001111 in binary
 char_b_pattern: .word 491  # 491 = 1111010111 in binary
 char_c_pattern: .word 451  # 451 = 111000011
@@ -73,6 +83,20 @@ char_r_pattern: .word 303  # 303 = 100101111
 char_s_pattern: .word 231
 
 char_u_pattern: .word 960
+
+
+number_patterns:
+    .word 963    # Pattern for digit 0
+    .word 1024    # Pattern for digit 1  
+    .word 219    # Pattern for digit 2
+    .word 235    # Pattern for digit 3
+    .word 1304    # Pattern for digit 4
+    .word 231    # Pattern for digit 5
+    .word 0x7D    # Pattern for digit 6
+    .word 0x07    # Pattern for digit 7
+    .word 0x7F    # Pattern for digit 8
+    .word 0x6F    # Pattern for digit 9
+
 
 # Colors
 GEM_COLOURS:
@@ -3190,3 +3214,215 @@ remove_word_paused_done:
     lw   $ra, 24($sp)
     addi $sp, $sp, 28
     jr   $ra
+
+
+
+
+##########################################
+# draw_score()
+# Draws the complete score value with multiple digits
+# Uses memory parameters for positioning and styling
+# Calls return_digit and draw_number functions
+##########################################
+draw_score:
+    # Prologue - save registers
+    addi $sp, $sp, -24
+    sw $ra, 20($sp)
+    sw $s0, 16($sp)
+    sw $s1, 12($sp)
+    sw $s2, 8($sp)
+    sw $s3, 4($sp)
+    sw $s4, 0($sp)
+
+    # Load all display parameters from memory
+    la $t0, SCORE_VALUE_X
+    lw $s0, 0($t0)          # $s0 = base X coordinate
+    
+    la $t0, SCORE_VALUE_Y
+    lw $s1, 0($t0)          # $s1 = Y coordinate
+    
+    la $t0, SCORE_VALUE_SIZE
+    lw $s2, 0($t0)          # $s2 = size
+    
+    la $t0, SCORE_VALUE_COLOR
+    lw $s3, 0($t0)          # $s3 = color
+    
+    la $t0, SCORE_VALUE_SPACING
+    lw $s4, 0($t0)          # $s4 = spacing between digits
+    
+    la $t0, SCORE_VALUE_DIGIT
+    lw $t1, 0($t0)          # $t1 = number of digits
+    
+    la $t0, SCORE_VALUE_VALUE
+    lw $a0, 0($t0)          # $a0 = score value
+
+    # Initialize loop counter (digit position from right, starting at 0)
+    li $t2, 0               # $t2 = current digit position (0 = least significant)
+
+draw_score_loop:
+    # Check if we've drawn all digits
+    bge $t2, $t1, draw_score_end
+    
+    # Prepare to call return_digit to get the specific digit
+    move $a1, $t2           # $a1 = digit position (0-indexed from right)
+    addi $a1, $a1, 1        # Convert to 1-indexed for return_digit
+    
+    # Save temporary registers before function call
+    addi $sp, $sp, -12
+    sw $t0, 8($sp)
+    sw $t1, 4($sp)
+    sw $t2, 0($sp)
+    
+    # Call return_digit to get the digit at current position
+    jal return_digit
+    
+    # Restore temporary registers
+    lw $t2, 0($sp)
+    lw $t1, 4($sp)
+    lw $t0, 8($sp)
+    addi $sp, $sp, 12
+    
+    # Now $v0 contains the digit (0-9)
+    # Calculate X position for this digit: base_x + (digit_index * spacing)
+    # We draw from left to right, so most significant digit first
+    # Position = (total_digits - current_position - 1) * spacing
+    sub $t3, $t1, $t2       # $t3 = total_digits - current_position
+    addi $t3, $t3, -1       # $t3 = total_digits - current_position - 1
+    mul $t3, $t3, $s4       # $t3 = offset = position * spacing
+    add $t3, $s0, $t3       # $t3 = x_coordinate = base_x + offset
+    
+    # Prepare arguments for draw_number
+    move $a0, $t3           # $a0 = x coordinate
+    move $a1, $s1           # $a1 = y coordinate
+    move $a2, $s2           # $a2 = size
+    move $a3, $s3           # $a3 = color
+    
+    # Save temporary registers before function call
+    addi $sp, $sp, -16
+    sw $t0, 12($sp)
+    sw $t1, 8($sp)
+    sw $t2, 4($sp)
+    sw $v0, 0($sp)          # Save the digit value
+    
+    # Push digit value onto stack for draw_number
+    addi $sp, $sp, -4
+    sw $v0, 0($sp)
+    
+    # Call draw_number
+    jal draw_number
+    
+    # Clean up stack (remove digit parameter)
+    addi $sp, $sp, 4
+    
+    # Restore temporary registers
+    lw $v0, 0($sp)
+    lw $t2, 4($sp)
+    lw $t1, 8($sp)
+    lw $t0, 12($sp)
+    addi $sp, $sp, 16
+    
+    # Move to next digit position
+    addi $t2, $t2, 1
+    j draw_score_loop
+
+draw_score_end:
+    # Epilogue - restore registers
+    lw $s4, 0($sp)
+    lw $s3, 4($sp)
+    lw $s2, 8($sp)
+    lw $s1, 12($sp)
+    lw $s0, 16($sp)
+    lw $ra, 20($sp)
+    addi $sp, $sp, 24
+    jr $ra
+
+
+##########################################
+# draw_number(x, y, size, color, value)
+# Draws a digit (0-9) using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+#        $sp(0) = value (digit to draw, 0-9)
+# Uses: number_patterns array to get segment pattern
+##########################################
+draw_number:
+    # Prologue
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $t0, 0($sp)        # Save $t0 since we'll use it
+    
+    # Get the value parameter from stack (it's at offset 8 because we pushed 2 words)
+    lw   $t0, 8($sp)        # Load value parameter
+    
+    # Validate value is between 0-9
+    blt  $t0, 0, invalid_value
+    bgt  $t0, 9, invalid_value
+    
+    # Calculate address in number_patterns array
+    la   $t1, number_patterns   # Load base address of patterns array
+    sll  $t2, $t0, 2           # Multiply value by 4 (word offset)
+    add  $t1, $t1, $t2         # Calculate address: number_patterns[value]
+    lw   $t0, 0($t1)           # Load pattern from array
+    
+    # Push pattern onto stack for draw_11seg
+    addi $sp, $sp, -4
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack (remove pattern)
+    addi $sp, $sp, 4
+    
+    j epilogue
+
+invalid_value:
+    # Handle invalid value (could draw nothing or error pattern)
+    # For now, we'll just return without drawing
+
+epilogue:
+    # Epilogue
+    lw   $t0, 0($sp)          # Restore $t0
+    lw   $ra, 4($sp)          # Restore $ra
+    addi $sp, $sp, 8          # Restore stack pointer
+    jr   $ra
+
+
+
+#-----------------------------------------------------------
+# Function: return_digit
+# Description: Extracts the k-th decimal digit from a positive integer (counting from right, starting at 1)
+# Input:  $a0 - 32-bit positive integer value
+#         $a1 - digit position (1 = least significant digit, 2 = second least significant, etc.)
+# Output: $v0 - decimal digit at the specified position (0-9)
+# Clobbers: $t0, $t1
+#-----------------------------------------------------------
+return_digit:
+    addi $sp, $sp, -12      # Adjust stack pointer to save registers
+    sw $s0, 8($sp)          # Save $s0
+    sw $s1, 4($sp)          # Save $s1
+    sw $s2, 0($sp)          # Save $s2
+
+    move $s0, $a0           # Save the original number in $s0
+    move $s1, $a1           # Save the digit position in $s1
+
+    li $s2, 1               # Initialize counter i = 1
+    move $t0, $s0           # Temporary register for the number
+
+loop:
+    beq $s2, $s1, end_loop  # If i == digit position, exit loop
+    li $t1, 10              # Load 10 into $t1 for division
+    div $t0, $t1            # Divide current number by 10
+    mflo $t0                # Update number to quotient (remove last digit)
+    addi $s2, $s2, 1        # Increment counter i
+    j loop                  # Repeat loop
+
+end_loop:
+    li $t1, 10              # Load 10 into $t1 for modulus
+    div $t0, $t1            # Divide to get quotient and remainder
+    mfhi $v0                # Move remainder (the digit) to $v0
+
+    lw $s2, 0($sp)          # Restore $s2
+    lw $s1, 4($sp)          # Restore $s1
+    lw $s0, 8($sp)          # Restore $s0
+    addi $sp, $sp, 12       # Adjust stack pointer back
+    jr $ra                  # Return to caller
