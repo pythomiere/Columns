@@ -2,7 +2,7 @@
 # This file contains our implementation of Columns.
 #
 # Student 1: Elvis Chen, 1011772422
-# Student 2: Frank Fu, Student Number 1008841372
+# Student 2: Frank Fu, 1008841372
 #
 # We assert that the code submitted here is entirely our own 
 # creation, and will indicate otherwise when it is not.
@@ -44,7 +44,7 @@ GEM_COLOURS:
     .word 0x0000ff      # blue
     .word 0x8000ff      # purple
 
-
+game_over_msg: .asciiz "game over!\n"
 
 # Color for background color
 COLOR_BG:   .word 0x000000   # black for empty cells
@@ -99,6 +99,12 @@ Cur_Col_Is_Landing: .word 0 # 1=landing, 0=not landing
 # Gravity access table - marks which columns need gravity handling
 .align 2                    # Ensure word alignment
 Gravity_Access_Table: .word 0:6  # GRID_COLS=6
+
+Auto_Fall_Threshold: .word 1000
+
+Auto_Fall_Counter: .word 0
+
+Auto_Fall_Cycle_Increment: .word 50
 
 #-----------------
 # Stack Implementation for Chain Reaction System
@@ -916,13 +922,15 @@ fin_handle_landing:
 ##############################################################################
 check_handle_matching:
     # Prologue - save return address and saved registers
-    addi $sp, $sp, -24
-    sw   $ra, 20($sp)
-    sw   $s0, 16($sp)        # Current x coordinate
-    sw   $s1, 12($sp)        # Current y coordinate  
-    sw   $s2, 8($sp)         # Base color for matching
-    sw   $s3, 4($sp)         # Direction counter
-    sw   $s4, 0($sp)         # Temporary for column index
+    addi $sp, $sp, -32
+    sw   $ra, 28($sp)
+    sw   $s0, 24($sp)        # Current x coordinate
+    sw   $s1, 20($sp)        # Current y coordinate  
+    sw   $s2, 16($sp)        # Base color for matching
+    sw   $s3, 12($sp)        # Direction counter
+    sw   $s4, 8($sp)         # Column index
+    sw   $s5, 4($sp)         # Temporary for table address
+    sw   $s6, 0($sp)         # Temporary for calculations
 
 main_chain_loop:
     # Check if chain stack is empty
@@ -981,42 +989,37 @@ next_direction:
 directions_done:
     # Step 1c: Handle gravity for all marked columns
     li   $s4, 0             # $s4 = column index
+    lw   $s6, GRID_COLS     # $s6 = GRID_COLS (preserved across calls)
 
 gravity_table_loop:
     # Check if we've processed all columns
-    lw   $t0, GRID_COLS
-    beq  $s4, $t0, main_chain_loop
+    beq  $s4, $s6, main_chain_loop
 
     # Check if this column is marked in Gravity_Access_Table
-    la   $t1, Gravity_Access_Table
+    la   $s5, Gravity_Access_Table  # $s5 = table base address
     
     # Verify column index is within bounds
     blt  $s4, $zero, next_gravity_column    # Skip if negative
-    bge  $s4, $t0, next_gravity_column      # Skip if >= GRID_COLS
+    bge  $s4, $s6, next_gravity_column      # Skip if >= GRID_COLS
     
-    sll  $t2, $s4, 2        # Multiply by 4 (word size)
-    add  $t1, $t1, $t2      # $t1 = address in table
+    sll  $t0, $s4, 2        # Multiply by 4 (word size) - $t0 safe for immediate use
+    add  $s5, $s5, $t0      # $s5 = address in table
     
     # Verify address is word-aligned (multiple of 4)
-    andi $t3, $t1, 0x3      # Check if address is word-aligned
-    bne  $t3, $zero, next_gravity_column  # Skip if not aligned
+    andi $t0, $s5, 0x3      # Check if address is word-aligned - $t0 safe for immediate use
+    bne  $t0, $zero, next_gravity_column  # Skip if not aligned
     
-    lw   $t3, 0($t1)        # $t3 = table value
+    lw   $t0, 0($s5)        # $t0 = table value - safe for immediate use
     
     # If column not marked, skip
-    beq  $t3, 0, next_gravity_column
+    beq  $t0, 0, next_gravity_column
 
     # Step 1c: Call handle_gravity for this column
     move $a0, $s4           # column index
     jal  handle_gravity
 
-    # Reset the table entry to 0 - with address validation
-    andi $t4, $t1, 0x3      # Check alignment again
-    beq  $t4, $zero, store_ok  # Only store if aligned
-    j    next_gravity_column   # Skip store if not aligned
-
-store_ok:
-    sw   $zero, 0($t1)
+    # Reset the table entry to 0
+    sw   $zero, 0($s5)
 
 next_gravity_column:
     addi $s4, $s4, 1        # Move to next column
@@ -1024,100 +1027,6 @@ next_gravity_column:
 
 chain_reaction_done:
     # Epilogue - restore registers and return
-    lw   $s4, 0($sp)
-    lw   $s3, 4($sp)
-    lw   $s2, 8($sp)
-    lw   $s1, 12($sp)
-    lw   $s0, 16($sp)
-    lw   $ra, 20($sp)
-    addi $sp, $sp, 24
-    jr   $ra
-
-##############################################################################
-# check_direction_match(x, y, base_color, direction)
-# Input:  $a0 = x, $a1 = y, $a2 = base_color, $a3 = direction (0-7)
-# Output: $v0 = 1 if this cell is part of a run of >=3 in this direction,
-#                0 otherwise
-##############################################################################
-check_direction_match:
-    # Prologue
-    addi $sp, $sp, -32
-    sw   $ra, 28($sp)
-    sw   $s0, 24($sp)        # base x
-    sw   $s1, 20($sp)        # base y
-    sw   $s2, 16($sp)        # base_color
-    sw   $s3, 12($sp)        # pos_count
-    sw   $s4, 8($sp)         # dx
-    sw   $s5, 4($sp)         # dy
-    sw   $s6, 0($sp)         # neg_count
-
-    move $s0, $a0            # base x
-    move $s1, $a1            # base y
-    move $s2, $a2            # base_color
-    move $t0, $a3            # direction (temp only)
-
-    # Get direction vector (dx, dy)
-    move $a0, $t0
-    jal  get_direction_vector
-    move $s4, $v0            # dx
-    move $s5, $v1            # dy
-
-    # Count in +direction
-    li   $s3, 0              # pos_count = 0
-
-    add  $t1, $s0, $s4       # cx = x + dx
-    add  $t2, $s1, $s5       # cy = y + dy
-
-pos_loop:
-    move $a0, $t1
-    move $a1, $t2
-    jal  check_cell_color    # v0 = color at (cx, cy)
-    bne  $v0, $s2, pos_done  # stop when color != base_color
-
-    addi $s3, $s3, 1         # pos_count++
-    add  $t1, $t1, $s4       # cx += dx
-    add  $t2, $t2, $s5       # cy += dy
-    j    pos_loop
-
-pos_done:
-
-    # Count in -direction
-    li   $s6, 0              # neg_count = 0
-
-    sub  $t3, $zero, $s4     # ndx = -dx
-    sub  $t4, $zero, $s5     # ndy = -dy
-
-    add  $t1, $s0, $t3       # cx = x - dx
-    add  $t2, $s1, $t4       # cy = y - dy
-
-neg_loop:
-    move $a0, $t1
-    move $a1, $t2
-    jal  check_cell_color
-    bne  $v0, $s2, neg_done
-
-    addi $s6, $s6, 1         # neg_count++
-    add  $t1, $t1, $t3       # cx += ndx
-    add  $t2, $t2, $t4       # cy += ndy
-    j    neg_loop
-
-neg_done:
-    # total = 1 (center) + pos_count + neg_count
-    add  $t5, $s3, $s6
-    addi $t5, $t5, 1
-
-    li   $t6, 3
-    slt  $t7, $t5, $t6       # t7 = 1 if total < 3
-    bne  $t7, $zero, no_match_cd
-
-    li   $v0, 1              # match
-    j    done_cd
-
-no_match_cd:
-    li   $v0, 0
-
-done_cd:
-    # Epilogue
     lw   $s6, 0($sp)
     lw   $s5, 4($sp)
     lw   $s4, 8($sp)
@@ -1129,6 +1038,103 @@ done_cd:
     addi $sp, $sp, 32
     jr   $ra
 
+##############################################################################
+# check_direction_match(x, y, base_color, direction)
+# Check if there are 3 consecutive gems in the given direction
+# Now checks: forward (current, +1, +2) AND reverse (-1, current, +1) patterns
+# Input: $a0 = x, $a1 = y, $a2 = base_color, $a3 = direction (0-7)
+# Output: $v0 = 1 if match found, 0 otherwise
+##############################################################################
+check_direction_match:
+    # Prologue
+    addi $sp, $sp, -28
+    sw   $ra, 24($sp)
+    sw   $s0, 20($sp)        # x coordinate
+    sw   $s1, 16($sp)        # y coordinate
+    sw   $s2, 12($sp)        # base color
+    sw   $s3, 8($sp)         # direction
+    sw   $s4, 4($sp)         # dx (direction vector x)
+    sw   $s5, 0($sp)         # dy (direction vector y)
+
+    move $s0, $a0
+    move $s1, $a1
+    move $s2, $a2
+    move $s3, $a3
+
+    # Get direction vector
+    move $a0, $s3
+    jal  get_direction_vector
+    move $s4, $v0           # $s4 = dx (saved register)
+    move $s5, $v1           # $s5 = dy (saved register)
+
+    # Check Pattern 1: Forward direction (current, +1, +2)
+    # Check first cell in direction
+    add  $a0, $s0, $s4      # x + dx
+    add  $a1, $s1, $s5      # y + dy
+    jal  check_cell_color
+    bne  $v0, $s2, check_reverse_pattern  # Color doesn't match, try reverse pattern
+
+    # Check second cell in direction  
+    add  $a0, $s0, $s4      # x + dx
+    add  $a1, $s1, $s5      # y + dy
+    add  $a0, $a0, $s4      # x + 2*dx
+    add  $a1, $a1, $s5      # y + 2*dy
+    jal  check_cell_color
+    beq  $v0, $s2, match_found  # Pattern 1 found!
+
+check_reverse_pattern:
+    # Check Pattern 2: Reverse direction (-1, current, +1) - current cell in middle
+    # Check reverse cell (-dx, -dy)
+    sub  $a0, $s0, $s4      # x - dx
+    sub  $a1, $s1, $s5      # y - dy
+    
+    # Check if reverse cell is within grid bounds
+    blt  $a0, $zero, no_match
+    blt  $a1, $zero, no_match
+    lw   $t0, GRID_COLS
+    bge  $a0, $t0, no_match
+    lw   $t0, GRID_ROWS
+    bge  $a1, $t0, no_match
+    
+    jal  check_cell_color
+    bne  $v0, $s2, no_match  # Reverse cell doesn't match
+
+    # Check forward cell again (+dx, +dy) - we know current cell matches (base_color)
+    add  $a0, $s0, $s4      # x + dx
+    add  $a1, $s1, $s5      # y + dy
+    
+    # Check if forward cell is within grid bounds
+    blt  $a0, $zero, no_match
+    blt  $a1, $zero, no_match
+    lw   $t0, GRID_COLS
+    bge  $a0, $t0, no_match
+    lw   $t0, GRID_ROWS
+    bge  $a1, $t0, no_match
+    
+    jal  check_cell_color
+    bne  $v0, $s2, no_match  # Forward cell doesn't match
+
+    # Pattern 2 found! (reverse, current, forward)
+    j    match_found
+
+no_match:
+    li   $v0, 0
+    j    check_direction_done
+
+match_found:
+    li   $v0, 1
+
+check_direction_done:
+    # Epilogue
+    lw   $s5, 0($sp)
+    lw   $s4, 4($sp)
+    lw   $s3, 8($sp)
+    lw   $s2, 12($sp)
+    lw   $s1, 16($sp)
+    lw   $s0, 20($sp)
+    lw   $ra, 24($sp)
+    addi $sp, $sp, 28
+    jr   $ra
 
 ##############################################################################
 # remove_direction_run(x, y, base_color, direction)
@@ -1564,6 +1570,12 @@ game_loop:
     # 0. Handle keyboard input (may change CUR_COL_X/Y or colours)
     jal handle_input
     
+    # 1. Increase auto fall timer
+    jal increase_timer
+    
+    # 2. Check for auto fall
+    jal auto_fall
+    
     # 1. Redraw everything based on updated state
     jal draw_scene
     
@@ -1712,17 +1724,35 @@ hi_right:
     j    hi_done
     
 hi_down:
-    # Clear current column before moving
+    # Check if we can move down (target y = CUR_COL_Y + 1)
+    lw   $s0, CUR_COL_X      # Current x position
+    lw   $s1, CUR_COL_Y      # Current y position
+    
+    # Check bounds first - bottom wall
+    addi $t0, $s1, 3         # Bottom gem would be at y + 3
+    lw   $t1, GRID_ROWS
+    addi $t1, $t1, -1        # Bottom wall is at GRID_ROWS-1
+    bge  $t0, $t1, hi_done   # Can't move down if bottom gem would hit bottom wall
+    
+    # Check collision for only the bottom cell at new position (y+3)
+    move $a0, $s0            # Same x position
+    addi $a1, $s1, 3         # Check cell below bottom gem (y + 3)
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    
+    # If collision detected (v0 == 1), can't move
+    beq  $v0, 1, hi_done
+    
+    # No collision - clear current column and move
     jal  clear_current_column
     
-    lw   $t0, CUR_COL_Y
-    addi $t1, $t0, 1 
-    addi $t2, $t1, 2
-    lw   $t3, GRID_ROWS
-    addi $t3, $t3, -1
-
-    bge  $t2, $t3, hi_done
-    sw   $t1, CUR_COL_Y
+    addi $s1, $s1, 1
+    sw   $s1, CUR_COL_Y
+    
+    # Reset auto-fall counter after successful manual move
+    sw   $zero, Auto_Fall_Counter
+    
     j    hi_done
 
 hi_shuffle:
@@ -1753,6 +1783,80 @@ hi_done:
     lw   $s0, 8($sp)
     lw   $ra, 12($sp)
     addi $sp, $sp, 16
+    jr   $ra
+
+
+############################################################
+# increase_timer()
+# Increases the auto fall counter by the cycle increment
+# Clobbers: $t0, $t1
+############################################################
+increase_timer:
+    lw   $t0, Auto_Fall_Counter
+    lw   $t1, Auto_Fall_Cycle_Increment
+    add  $t0, $t0, $t1
+    sw   $t0, Auto_Fall_Counter
+    jr   $ra
+
+############################################################
+# auto_fall()
+# Checks if auto fall counter reached threshold, if so moves column down
+# and resets counter. Uses same logic as pressing 's' key.
+############################################################
+auto_fall:
+    # Prologue - save return address and saved registers
+    addi $sp, $sp, -24
+    sw   $ra, 20($sp)
+    sw   $s0, 16($sp)        # CUR_COL_X
+    sw   $s1, 12($sp)        # CUR_COL_Y  
+    sw   $s2, 8($sp)         # Temporary for calculations
+    sw   $s3, 4($sp)         # Temporary for calculations
+    sw   $s4, 0($sp)         # Temporary for calculations
+    
+    # Check if counter reached threshold
+    lw   $t0, Auto_Fall_Counter
+    lw   $t1, Auto_Fall_Threshold
+    blt  $t0, $t1, auto_fall_done  # Not reached threshold yet
+    
+    # Threshold reached - perform auto fall
+    # Reset counter
+    sw   $zero, Auto_Fall_Counter
+    
+    # Load current column position
+    lw   $s0, CUR_COL_X      # Current x position
+    lw   $s1, CUR_COL_Y      # Current y position
+    
+    # Check bounds first - bottom wall
+    addi $s2, $s1, 3         # Bottom gem would be at y + 3
+    lw   $s3, GRID_ROWS
+    addi $s3, $s3, -1        # Bottom wall is at GRID_ROWS-1
+    bge  $s2, $s3, auto_fall_done   # Can't move down if bottom gem would hit bottom wall
+    
+    # Check collision for only the bottom cell at new position (y+3)
+    move $a0, $s0            # Same x position
+    move $a1, $s2            # Check cell below bottom gem (y + 3)
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    
+    # If collision detected (v0 == 1), can't move
+    beq  $v0, 1, auto_fall_done
+    
+    # No collision - clear current column and move
+    jal  clear_current_column
+    
+    addi $s1, $s1, 1
+    sw   $s1, CUR_COL_Y
+
+auto_fall_done:
+    # Epilogue
+    lw   $s4, 0($sp)
+    lw   $s3, 4($sp)
+    lw   $s2, 8($sp)
+    lw   $s1, 12($sp)
+    lw   $s0, 16($sp)
+    lw   $ra, 20($sp)
+    addi $sp, $sp, 24
     jr   $ra
 
 
@@ -1799,16 +1903,18 @@ pause_input_done:
 # Clobbers: $a0, $a1, $t0
 ##########################################
 check_column_collision:
-    # Prologue - save return address
-    addi $sp, $sp, -8
-    sw   $ra, 4($sp)
-    sw   $s0, 0($sp)
+    # Prologue - save return address and incoming y
+    addi $sp, $sp, -12
+    sw   $ra, 8($sp)
+    sw   $s0, 4($sp)
+    sw   $s1, 0($sp)
 
     move $s0, $a0            # Save target x position
+    move $s1, $a1            # Save top y position passed in
 
     # Check top cell (x, y)
     move $a0, $s0
-    # $a1 already has y position
+    move $a1, $s1
     jal  check_cell_color
     move $a0, $v0
     jal  is_gem_color
@@ -1816,8 +1922,7 @@ check_column_collision:
 
     # Check middle cell (x, y+1)
     move $a0, $s0
-    lw   $a1, CUR_COL_Y
-    addi $a1, $a1, 1
+    addi $a1, $s1, 1
     jal  check_cell_color
     move $a0, $v0
     jal  is_gem_color
@@ -1825,8 +1930,7 @@ check_column_collision:
 
     # Check bottom cell (x, y+2)
     move $a0, $s0
-    lw   $a1, CUR_COL_Y
-    addi $a1, $a1, 2
+    addi $a1, $s1, 2
     jal  check_cell_color
     move $a0, $v0
     jal  is_gem_color
@@ -1841,7 +1945,8 @@ collision_found:
 
 collision_done:
     # Epilogue
-    lw   $s0, 0($sp)
-    lw   $ra, 4($sp)
-    addi $sp, $sp, 8
+    lw   $s1, 0($sp)
+    lw   $s0, 4($sp)
+    lw   $ra, 8($sp)
+    addi $sp, $sp, 12
     jr   $ra
