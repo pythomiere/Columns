@@ -81,6 +81,12 @@ Cur_Col_Is_Landing: .word 0 # 1=landing, 0=not landing
 .align 2                    # Ensure word alignment
 Gravity_Access_Table: .word 0:6  # GRID_COLS=6
 
+Auto_Fall_Threshold: .word 1000
+
+Auto_Fall_Counter: .word 0
+
+Auto_Fall_Cycle_Increment: .word 50
+
 #-----------------
 # Stack Implementation for Chain Reaction System
 # Two stacks: Chain_Reax_Stack_X and Chain_Reax_Stack_Y
@@ -1441,6 +1447,12 @@ game_loop:
     # 0. Handle keyboard input (may change CUR_COL_X/Y or colours)
     jal handle_input
     
+    # 1. Increase auto fall timer
+    jal increase_timer
+    
+    # 2. Check for auto fall
+    jal auto_fall
+    
     # 1. Redraw everything based on updated state
     jal draw_scene
     
@@ -1457,7 +1469,8 @@ game_loop:
     li  $v0, 32
     li  $a0, 16
     syscall
-
+    
+    
     # 6. Repeat
     j   game_loop
 
@@ -1586,17 +1599,35 @@ hi_right:
     j    hi_done
     
 hi_down:
-    # Clear current column before moving
+    # Check if we can move down (target y = CUR_COL_Y + 1)
+    lw   $s0, CUR_COL_X      # Current x position
+    lw   $s1, CUR_COL_Y      # Current y position
+    
+    # Check bounds first - bottom wall
+    addi $t0, $s1, 3         # Bottom gem would be at y + 3
+    lw   $t1, GRID_ROWS
+    addi $t1, $t1, -1        # Bottom wall is at GRID_ROWS-1
+    bge  $t0, $t1, hi_done   # Can't move down if bottom gem would hit bottom wall
+    
+    # Check collision for only the bottom cell at new position (y+3)
+    move $a0, $s0            # Same x position
+    addi $a1, $s1, 3         # Check cell below bottom gem (y + 3)
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    
+    # If collision detected (v0 == 1), can't move
+    beq  $v0, 1, hi_done
+    
+    # No collision - clear current column and move
     jal  clear_current_column
     
-    lw   $t0, CUR_COL_Y
-    addi $t1, $t0, 1 
-    addi $t2, $t1, 2
-    lw   $t3, GRID_ROWS
-    addi $t3, $t3, -1
-
-    bge  $t2, $t3, hi_done
-    sw   $t1, CUR_COL_Y
+    addi $s1, $s1, 1
+    sw   $s1, CUR_COL_Y
+    
+    # Reset auto-fall counter after successful manual move
+    sw   $zero, Auto_Fall_Counter
+    
     j    hi_done
 
 hi_shuffle:
@@ -1626,6 +1657,80 @@ hi_done:
     lw   $s0, 8($sp)
     lw   $ra, 12($sp)
     addi $sp, $sp, 16
+    jr   $ra
+
+
+############################################################
+# increase_timer()
+# Increases the auto fall counter by the cycle increment
+# Clobbers: $t0, $t1
+############################################################
+increase_timer:
+    lw   $t0, Auto_Fall_Counter
+    lw   $t1, Auto_Fall_Cycle_Increment
+    add  $t0, $t0, $t1
+    sw   $t0, Auto_Fall_Counter
+    jr   $ra
+
+############################################################
+# auto_fall()
+# Checks if auto fall counter reached threshold, if so moves column down
+# and resets counter. Uses same logic as pressing 's' key.
+############################################################
+auto_fall:
+    # Prologue - save return address and saved registers
+    addi $sp, $sp, -24
+    sw   $ra, 20($sp)
+    sw   $s0, 16($sp)        # CUR_COL_X
+    sw   $s1, 12($sp)        # CUR_COL_Y  
+    sw   $s2, 8($sp)         # Temporary for calculations
+    sw   $s3, 4($sp)         # Temporary for calculations
+    sw   $s4, 0($sp)         # Temporary for calculations
+    
+    # Check if counter reached threshold
+    lw   $t0, Auto_Fall_Counter
+    lw   $t1, Auto_Fall_Threshold
+    blt  $t0, $t1, auto_fall_done  # Not reached threshold yet
+    
+    # Threshold reached - perform auto fall
+    # Reset counter
+    sw   $zero, Auto_Fall_Counter
+    
+    # Load current column position
+    lw   $s0, CUR_COL_X      # Current x position
+    lw   $s1, CUR_COL_Y      # Current y position
+    
+    # Check bounds first - bottom wall
+    addi $s2, $s1, 3         # Bottom gem would be at y + 3
+    lw   $s3, GRID_ROWS
+    addi $s3, $s3, -1        # Bottom wall is at GRID_ROWS-1
+    bge  $s2, $s3, auto_fall_done   # Can't move down if bottom gem would hit bottom wall
+    
+    # Check collision for only the bottom cell at new position (y+3)
+    move $a0, $s0            # Same x position
+    move $a1, $s2            # Check cell below bottom gem (y + 3)
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    
+    # If collision detected (v0 == 1), can't move
+    beq  $v0, 1, auto_fall_done
+    
+    # No collision - clear current column and move
+    jal  clear_current_column
+    
+    addi $s1, $s1, 1
+    sw   $s1, CUR_COL_Y
+
+auto_fall_done:
+    # Epilogue
+    lw   $s4, 0($sp)
+    lw   $s3, 4($sp)
+    lw   $s2, 8($sp)
+    lw   $s1, 12($sp)
+    lw   $s0, 16($sp)
+    lw   $ra, 20($sp)
+    addi $sp, $sp, 24
     jr   $ra
 
 
