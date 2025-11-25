@@ -44,8 +44,6 @@ GEM_COLOURS:
     .word 0x0000ff      # blue
     .word 0x8000ff      # purple
 
-game_over_msg: .asciiz "game over!\n"
-
 # Color for background color
 COLOR_BG:   .word 0x000000   # black for empty cells
 COLOR_WALL: .word 0x404040   # dark gray for walls
@@ -60,6 +58,155 @@ DIRECTION_VECTORS:
     .word -1,  1    # 5: down-left
     .word -1,  0    # 6: left
     .word -1, -1    # 7: up-left
+    
+
+# Music configuration
+MUSIC_ENABLED:        .word 1        # 1=play, 0=stop
+MUSIC_NOTE_IDX:       .word 0        # current note index
+MUSIC_TIME_LEFT_MS:   .word 0        # ms until next note
+MUSIC_NOTE_COUNT:     .word 526
+MUSIC_INSTRUMENT:     .word 19
+MUSIC_VOLUME:         .word 100      # Default volume
+
+# MIDI pitches
+MUSIC_THEME_NOTES:
+    .word 69, 64, 72, 64, 71, 64, 69, 64
+    .word 68, 64, 71, 64, 69, 64, 68, 64
+    .word 67, 62, 71, 62, 69, 62, 67, 62
+    .word 66, 62, 67, 62, 69, 62, 67, 62
+    .word 69, 64, 72, 64, 71, 64, 69, 64
+    .word 74, 64, 71, 64, 68, 64, 71, 64
+    .word 67, 62, 71, 62, 69, 62, 72, 62
+    .word 71, 62, 67, 62, 66, 62, 67, 62
+    .word 69, 64, 72, 64, 71, 64, 67, 64
+    .word 68, 64, 71, 64, 74, 64, 72, 71
+    .word 67, 62, 67, 69, 71, 69, 67, 69
+    .word 66, 67, 69, 66, 62, 64, 66, 62
+    .word 69, 64, 69, 72, 71, 68, 74, 71
+    .word 74, 71, 68, 64, 68, 71, 74, 71
+    .word 67, 69, 71, 64, 69, 71, 72, 69
+    .word 69, 71, 72, 69, 74, 72, 71, 72
+    .word 74, 71, 72, 74, 68, 69, 71, 72
+    .word 66, 71, 67, 64, 69, 67, 66, 64
+    .word 69, 66, 62, 64, 69, 66, 62, 71
+    .word 67, 69, 67, 66, 71, 72, 74, 68
+    .word 69, 71, 72, 66, 67, 71, 69, 67
+    .word 66, 69, 67, 66, 64, 69, 66, 62
+    .word 64, 69, 66, 62, 64, 69, 66, 62
+    .word 64, 69, 71, 72, 65, 67, 65, 64
+    .word 69, 71, 72, 65, 74, 72, 71, 76
+    .word 72, 74, 71, 72, 69, 68, 69, 71
+    .word 68, 69, 71, 68, 69, 71, 68, 69
+    .word 69, 71, 72, 69, 71, 72, 69, 71
+    .word 71, 72, 74, 71, 72, 74, 71, 72
+    .word 74, 76, 72, 74, 71, 72, 69, 71
+    .word 68, 69, 71, 68, 69, 71, 68, 69
+    .word 69, 71, 72, 69, 71, 72, 69, 71
+    .word 76, 72, 74, 71, 68, 69, 69, 69
+    .word 64, 72, 64, 71, 64, 69, 64, 68
+    .word 64, 71, 64, 69, 64, 68, 64, 67
+    .word 62, 71, 62, 69, 62, 67, 62, 66
+    .word 62, 67, 62, 69, 62, 67, 62, 69
+    .word 64, 72, 64, 71, 64, 69, 64, 74
+    .word 64, 71, 64, 68, 64, 71, 64, 67
+    .word 62, 71, 62, 69, 62, 72, 62, 71
+    .word 62, 67, 62, 66, 62, 67, 62, 69
+    .word 64, 72, 64, 71, 64, 67, 64, 68
+    .word 64, 71, 64, 74, 64, 72, 71, 67
+    .word 62, 67, 69, 71, 69, 67, 69, 66
+    .word 67, 69, 66, 62, 64, 66, 62, 69
+    .word 64, 69, 72, 71, 68, 74, 71, 74
+    .word 71, 68, 64, 68, 71, 74, 71, 67
+    .word 69, 71, 64, 69, 71, 72, 69, 69
+    .word 71, 72, 69, 74, 72, 71, 72, 74
+    .word 71, 72, 74, 68, 69, 71, 72, 66
+    .word 71, 67, 64, 69, 67, 66, 64, 69
+    .word 66, 62, 64, 69, 66, 62, 71, 67
+    .word 69, 67, 66, 71, 72, 74, 68, 69
+    .word 71, 72, 66, 67, 71, 69, 67, 66
+    .word 69, 67, 66, 64, 69, 66, 62, 64
+    .word 69, 66, 62, 64, 69, 66, 62, 64
+    .word 69, 71, 72, 65, 67, 65, 64, 69
+    .word 71, 72, 65, 74, 72, 71, 76, 72
+    .word 74, 71, 72, 69, 68, 69, 71, 68
+    .word 69, 71, 68, 69, 71, 68, 69, 69
+    .word 71, 72, 69, 71, 72, 69, 71, 71
+    .word 72, 74, 71, 72, 74, 71, 72, 74
+    .word 76, 72, 74, 71, 72, 69, 71, 68
+    .word 69, 71, 68, 69, 71, 68, 69, 69
+    .word 71, 72, 69, 71, 72, 69, 71, 76
+    .word 72, 74, 71, 68, 69, 69
+
+# Durations in milliseconds
+MUSIC_THEME_DURS:
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 2000, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 500, 500, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 1000, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 1000, 250, 250, 250, 1750, 500, 500, 4000
+    .word 250, 250, 250, 1750, 500, 500, 4000, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 1500
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 750, 250, 2000, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 2000
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 500, 500, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 1000, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 1000
+    .word 250, 250, 250, 1750, 500, 500, 4000, 250
+    .word 250, 250, 1750, 500, 500, 4000, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 1500, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 250, 250, 250, 250, 250
+    .word 250, 250, 250, 750, 250, 2000
+    
+game_over_msg: .asciiz "game over!\n"
 
 
 ##############################################################################
@@ -486,6 +633,9 @@ game_over:
     li   $v0, 4               # syscall 4 = print string
     la   $a0, game_over_msg
     syscall
+
+    # Stop music before exiting
+    jal  music_stop
     
     # Exit the program
     li   $v0, 10              # syscall 10 = exit
@@ -509,6 +659,105 @@ get_random_colour:
     add  $t0, $t0, $t1
     lw   $v0, 0($t0)   # v0 = colour
 
+    jr   $ra
+
+##########################################
+# music_init()
+# Resets music state and starts the first note
+##########################################
+music_init:
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $s0, 0($sp)
+
+    li   $t0, 1
+    sw   $t0, MUSIC_ENABLED      # enable playback
+    sw   $zero, MUSIC_NOTE_IDX   # start at first note
+
+    jal  music_start_current_note
+
+    lw   $s0, 0($sp)
+    lw   $ra, 4($sp)
+    addi $sp, $sp, 8
+    jr   $ra
+
+##########################################
+# music_stop()
+# Disables music playback (used on exit)
+##########################################
+music_stop:
+    sw   $zero, MUSIC_ENABLED
+    jr   $ra
+
+##########################################
+# music_start_current_note()
+# Plays the note at MUSIC_NOTE_IDX and reloads time-left
+##########################################
+music_start_current_note:
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+    lw   $t0, MUSIC_NOTE_IDX
+    sll  $t1, $t0, 2            # index * 4
+
+    la   $t2, MUSIC_THEME_NOTES
+    add  $t2, $t2, $t1
+    lw   $t3, 0($t2)            # pitch
+
+    la   $t4, MUSIC_THEME_DURS
+    add  $t4, $t4, $t1
+    lw   $t5, 0($t4)            # duration (ms)
+    sw   $t5, MUSIC_TIME_LEFT_MS
+
+    lw   $t6, MUSIC_INSTRUMENT
+    lw   $t7, MUSIC_VOLUME
+
+    li   $v0, 31                # non-blocking play note syscall
+    move $a0, $t3               # pitch
+    move $a1, $t5               # duration in ms
+    move $a2, $t6               # instrument
+    move $a3, $t7               # volume
+    syscall
+
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# music_tick()
+# Called each frame to decrement timer and trigger next note
+##########################################
+music_tick:
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $s0, 0($sp)
+
+    lw   $t0, MUSIC_ENABLED
+    beq  $t0, $zero, mt_done
+
+    lw   $t1, MUSIC_TIME_LEFT_MS
+    li   $t2, 16                # frame time (ms)
+    sub  $t3, $t1, $t2
+    bgtz $t3, mt_store_time
+
+    # Advance to next note and play it
+    lw   $t4, MUSIC_NOTE_IDX
+    addi $t4, $t4, 1
+    lw   $t5, MUSIC_NOTE_COUNT
+    blt  $t4, $t5, mt_store_idx
+    li   $t4, 0                 # wrap to start
+mt_store_idx:
+    sw   $t4, MUSIC_NOTE_IDX
+    jal  music_start_current_note
+    j    mt_done
+
+mt_store_time:
+    sw   $t3, MUSIC_TIME_LEFT_MS
+
+mt_done:
+    lw   $s0, 0($sp)
+    lw   $ra, 4($sp)
+    addi $sp, $sp, 8
     jr   $ra
 
 ##########################################
@@ -576,6 +825,7 @@ init_game:
     sw   $ra, 0($sp)
 
     jal  init_column    # position + random colours
+    jal  music_init     # start background music
 
     lw   $ra, 0($sp)
     addi $sp, $sp, 4
@@ -1438,6 +1688,7 @@ main:
 #   - Poll keyboard
 #   - Update column state
 #   - Redraw scene
+#   - Tick music timer
 #   - Sleep a little
 ############################################################
 game_loop:
@@ -1463,13 +1714,15 @@ game_loop:
     # 4. Redraw everything based on updated state
     jal draw_scene
 
-    # 5. Sleep for a short time (60 fps)
+    # 5. Advance music timer and loop notes
+    jal music_tick
+
+    # 6. Sleep for a short time (60 fps)
     li  $v0, 32
     li  $a0, 16
     syscall
-    
-    
-    # 6. Repeat
+
+    # 7. Repeat
     j   game_loop
 
 ############################################################
@@ -1646,6 +1899,7 @@ hi_pause:
     j pause_loop
 
 hi_quit:
+    jal music_stop
     li  $v0, 10
     syscall
     
