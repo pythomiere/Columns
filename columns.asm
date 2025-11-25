@@ -856,9 +856,9 @@ clear_screen:
     sw   $s0, 0($sp)
 
     lw   $t0, ADDR_DSPL      # base
-    li   $t1, BITMAP_WIDTH   # width
-    li   $t2, BITMAP_HEIGHT  # height
-    mul  $t1, $t1, $t2       # total units o the display
+    lw   $t1, BITMAP_WIDTH   # width in units
+    lw   $t2, BITMAP_HEIGHT  # height in units
+    mul  $t1, $t1, $t2       # total units on the display
     li   $t3, 0x000000       # black
 
     li   $s0, 0              # i = 0
