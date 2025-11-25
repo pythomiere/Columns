@@ -64,7 +64,7 @@ SCORE_VALUE_Y: .word 40
 SCORE_VALUE_SIZE: .word 2
 SCORE_VALUE_COLOR: .word 0x00FFFFFF
 SCORE_VALUE_SPACING: .word 6
-SCORE_VALUE_DIGIT: .word 4
+SCORE_VALUE_DIGIT: .word 1
 SCORE_VALUE_VALUE: .word 0
 
 char_a_pattern: .word 783  # 783 = 1100001111 in binary
@@ -1384,7 +1384,12 @@ remove_direction_run:
     li   $v0, 32
     li   $a0, 150           # 150ms delay
     syscall
-
+    
+    jal remove_current_score
+    lw $t1, SCORE_VALUE_VALUE
+    addi $t1, $t1, 1
+    sw $t1, SCORE_VALUE_VALUE
+       
     lw   $s5, 0($sp)
     lw   $s4, 4($sp)
     lw   $s3, 8($sp)
@@ -3339,6 +3344,124 @@ draw_score_end:
     addi $sp, $sp, 24
     jr $ra
 
+
+##########################################
+# remove_current_score()
+# Draws the complete score value with multiple digits
+# Uses memory parameters for positioning and styling
+# Calls return_digit and draw_number functions
+##########################################
+remove_current_score:
+    # Prologue - save registers
+    addi $sp, $sp, -24
+    sw $ra, 20($sp)
+    sw $s0, 16($sp)
+    sw $s1, 12($sp)
+    sw $s2, 8($sp)
+    sw $s3, 4($sp)
+    sw $s4, 0($sp)
+
+    # Load all display parameters from memory
+    la $t0, SCORE_VALUE_X
+    lw $s0, 0($t0)          # $s0 = base X coordinate
+    
+    la $t0, SCORE_VALUE_Y
+    lw $s1, 0($t0)          # $s1 = Y coordinate
+    
+    la $t0, SCORE_VALUE_SIZE
+    lw $s2, 0($t0)          # $s2 = size
+    
+    la $t0, COLOR_BG
+    lw $s3, 0($t0)          # $s3 = color
+    
+    la $t0, SCORE_VALUE_SPACING
+    lw $s4, 0($t0)          # $s4 = spacing between digits
+    
+    la $t0, SCORE_VALUE_DIGIT
+    lw $t1, 0($t0)          # $t1 = number of digits
+    
+    la $t0, SCORE_VALUE_VALUE
+    lw $a0, 0($t0)          # $a0 = score value
+
+    # Initialize loop counter (digit position from right, starting at 0)
+    li $t2, 0               # $t2 = current digit position (0 = least significant)
+
+remove_score_loop:
+    # Check if we've drawn all digits
+    bge $t2, $t1, draw_score_end
+    
+    # Prepare to call return_digit to get the specific digit
+    move $a1, $t2           # $a1 = digit position (0-indexed from right)
+    addi $a1, $a1, 1        # Convert to 1-indexed for return_digit
+    
+    # Save temporary registers before function call
+    addi $sp, $sp, -12
+    sw $t0, 8($sp)
+    sw $t1, 4($sp)
+    sw $t2, 0($sp)
+    
+    # Call return_digit to get the digit at current position
+    jal return_digit
+    
+    # Restore temporary registers
+    lw $t2, 0($sp)
+    lw $t1, 4($sp)
+    lw $t0, 8($sp)
+    addi $sp, $sp, 12
+    
+    # Now $v0 contains the digit (0-9)
+    # Calculate X position for this digit: base_x + (digit_index * spacing)
+    # We draw from left to right, so most significant digit first
+    # Position = (total_digits - current_position - 1) * spacing
+    sub $t3, $t1, $t2       # $t3 = total_digits - current_position
+    addi $t3, $t3, -1       # $t3 = total_digits - current_position - 1
+    mul $t3, $t3, $s4       # $t3 = offset = position * spacing
+    add $t3, $s0, $t3       # $t3 = x_coordinate = base_x + offset
+    
+    # Prepare arguments for draw_number
+    move $a0, $t3           # $a0 = x coordinate
+    move $a1, $s1           # $a1 = y coordinate
+    move $a2, $s2           # $a2 = size
+    move $a3, $s3           # $a3 = color
+    
+    # Save temporary registers before function call
+    addi $sp, $sp, -16
+    sw $t0, 12($sp)
+    sw $t1, 8($sp)
+    sw $t2, 4($sp)
+    sw $v0, 0($sp)          # Save the digit value
+    
+    # Push digit value onto stack for draw_number
+    addi $sp, $sp, -4
+    sw $v0, 0($sp)
+    
+    # Call draw_number
+    jal draw_number
+    
+    # Clean up stack (remove digit parameter)
+    addi $sp, $sp, 4
+    
+    # Restore temporary registers
+    lw $v0, 0($sp)
+    lw $t2, 4($sp)
+    lw $t1, 8($sp)
+    lw $t0, 12($sp)
+    addi $sp, $sp, 16
+    
+    # Move to next digit position
+    addi $t2, $t2, 1
+    j draw_score_loop
+
+remove_score_end:
+    # Epilogue - restore registers
+    lw $s4, 0($sp)
+    lw $s3, 4($sp)
+    lw $s2, 8($sp)
+    lw $s1, 12($sp)
+    lw $s0, 16($sp)
+    lw $ra, 20($sp)
+    addi $sp, $sp, 24
+    jr $ra
 
 ##########################################
 # draw_number(x, y, size, color, value)
