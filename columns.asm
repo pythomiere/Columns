@@ -10,8 +10,8 @@
 ######################## Bitmap Display Configuration ########################
 # - Unit width in pixels:       8
 # - Unit height in pixels:      8
-# - Display width in pixels:    512
-# - Display height in pixels:   512
+# - Display width in pixels:    256
+# - Display height in pixels:   256
 # - Base Address for Display:   0x10008000 ($gp)
 ##############################################################################
 
@@ -31,16 +31,38 @@ BITMAP_WIDTH:   .word 64
 BITMAP_HEIGHT:  .word 64
 
 # Grid parameters
-GRID_COLS:     .word 12
-GRID_ROWS:     .word 25
+GRID_COLS:     .word 9
+GRID_ROWS:     .word 16
 GRID_LEFT:     .word 25
 GRID_TOP:      .word 5
 
 #Pause Display Parameters
-PAUSE_LEFT: .word 15
-PAUSE_TOP: .word 15
-PAUSE_TEXT_SIZE: .word 5
-PAUSE_TEXT_COLOR: .word 0xfffff
+PAUSED_X: .word 8
+PAUSED_Y: .word 20
+PAUSED_SIZE: .word 3
+PAUSED_COLOR: .word 0x00FFFFFF
+PAUSED_SPACING: .word 10
+
+#Pause Display Parameters
+GG_X: .word 25
+GG_Y: .word 20
+GG_SIZE: .word 3
+GG_COLOR: .word 0x00FFFFFF
+GG_SPACING: .word 12
+
+char_a_pattern: .word 783  # 783 = 1100001111 in binary
+char_b_pattern: .word 491  # 491 = 1111010111 in binary
+
+char_d_pattern: .word 1666 #1666
+char_e_pattern: .word 465
+
+char_g_pattern: .word 483 #483 = 111100011
+
+char_p_pattern: .word 271
+
+char_s_pattern: .word 231
+
+char_u_pattern: .word 960
 
 # Colors
 GEM_COLOURS:
@@ -218,7 +240,7 @@ game_over_msg: .asciiz "game over!\n"
 
 letter_patterns: .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0  # Placeholder
 
-char_a_pattern: .word 783  # 783 = 1100001111 in binary
+
 
 ##############################################################################
 # Mutable Data
@@ -265,6 +287,7 @@ points_y: .word 0,0,0,0,0,0,0
     
 start:
     j main
+    
     nop # I just google it, I dont know how it works
 
 ############################################################
@@ -652,6 +675,8 @@ game_over:
     # Stop music before exiting
     jal  music_stop
     
+    jal draw_word_gg
+    
     # Exit the program
     li   $v0, 10              # syscall 10 = exit
     syscall
@@ -856,10 +881,8 @@ clear_screen:
     sw   $s0, 0($sp)
 
     lw   $t0, ADDR_DSPL      # base
-    lw   $t1, BITMAP_WIDTH   # width in units
-    lw   $t2, BITMAP_HEIGHT  # height in units
-    mul  $t1, $t1, $t2       # total units on the display
-    li   $t3, 0x000000       # black
+    li   $t1, 1024          # number of units
+    li   $t2, 0x000000       # black
 
     li   $s0, 0              # i = 0
 
@@ -867,9 +890,9 @@ clear_loop:
     beq  $s0, $t1, clear_done
 
     # address = base + i*4
-    sll  $t4, $s0, 2
-    add  $t5, $t0, $t4
-    sw   $t3, 0($t5)
+    sll  $t3, $s0, 2
+    add  $t4, $t0, $t3
+    sw   $t2, 0($t4)
 
     addi $s0, $s0, 1
     j    clear_loop
@@ -1321,6 +1344,11 @@ remove_direction_run:
     move $a3, $s3
     li   $t0, -1            # reverse direction
     jal  remove_direction
+    
+    # Small delay to avoid busy waiting
+    li   $v0, 32
+    li   $a0, 150           # 150ms delay
+    syscall
 
     lw   $s5, 0($sp)
     lw   $s4, 4($sp)
@@ -1738,7 +1766,9 @@ game_loop:
     li  $v0, 32
     li  $a0, 16
     syscall
-
+    
+    
+    
     # 7. Repeat
     j   game_loop
 
@@ -1750,7 +1780,7 @@ pause_loop:
     # Prologue
     addi $sp, $sp, -4
     sw   $ra, 0($sp)
-    
+    jal draw_word_paused
 
 pause_wait:
     # Call pause input handler
@@ -1764,7 +1794,7 @@ pause_wait:
     j    pause_wait
 
 resume_game_loop:
-    
+    jal remove_word_paused
     jal draw_scene
     lw   $ra, 0($sp)
     addi $sp, $sp, 4
@@ -2551,37 +2581,424 @@ skip_bit10:
     
 
 ##########################################
-# draw_char_a
-# Draw the letter 'A' using 11-segment display
-# at fixed coordinates (10,10), size 5, color white
+# draw_char_p(x, y, size, color)
+# Draws the letter 'P' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_p:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_p_pattern  # Load P pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg (parameters already in $a0-$a3)
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# draw_char_a(x, y, size, color)
+# Draws the letter 'A' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
 ##########################################
 draw_char_a:
-    # Prologue - save registers
-    addi $sp, $sp, -12
-    sw $ra, 8($sp)
-    sw $s0, 4($sp)
-    sw $s1, 0($sp)
-    
-    # Load the pattern for letter A
-    la $s0, char_a_pattern
-    lw $s1, 0($s0)        # s1 = line code for A
-    
-    # Set up parameters for draw_11seg
-    li $a0, 10            # x = 10
-    li $a1, 10            # y = 10
-    li $a2, 5             # size = 5
-    li $a3, 0x00FFFFFF    # color = white (RGB)
-    
-    # Push line code onto stack and call draw_11seg
+    # Prologue
     addi $sp, $sp, -4
-    sw $s1, 0($sp)        # store line code on stack
-    jal draw_11seg
-    addi $sp, $sp, 4      # clean up stack
+    sw   $ra, 0($sp)
     
-    # Epilogue - restore registers
-    lw $ra, 8($sp)
-    lw $s0, 4($sp)
-    lw $s1, 0($sp)
-    addi $sp, $sp, 12
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_a_pattern  # Load A pattern from memory
+    sw   $t0, 0($sp)
     
-    jr $ra
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# draw_char_u(x, y, size, color)
+# Draws the letter 'U' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_u:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_u_pattern  # Load U pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# draw_char_s(x, y, size, color)
+# Draws the letter 'S' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_s:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_s_pattern  # Load S pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# draw_char_e(x, y, size, color)
+# Draws the letter 'E' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_e:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_e_pattern  # Load E pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# draw_char_d(x, y, size, color)
+# Draws the letter 'D' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_d:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_d_pattern  # Load D pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+
+##########################################
+# draw_char_g(x, y, size, color)
+# Draws the letter 'G' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_g:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_g_pattern  # Load D pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# draw_word_gg()
+# Draws the word "GG" using individual character functions
+# Arranges letters with proper spacing
+##########################################
+draw_word_gg:
+    # Prologue - save return address and saved registers
+    addi $sp, $sp, -28
+    sw   $ra, 24($sp)
+    sw   $s0, 20($sp)        # current x position
+    sw   $s1, 16($sp)        # y position
+    sw   $s2, 12($sp)        # size
+    sw   $s3, 8($sp)         # color
+    sw   $s4, 4($sp)         # spacing
+    sw   $s5, 0($sp)         # letter counter
+
+    # Load word display parameters
+    lw   $s0, GG_X       # starting x position
+    lw   $s1, GG_Y       # y position
+    lw   $s2, GG_SIZE    # size
+    lw   $s3, GG_COLOR   # color
+    lw   $s4, GG_SPACING # spacing between letters
+
+    # Draw 'G'
+    move $a0, $s0            # x
+    move $a1, $s1            # y
+    move $a2, $s2            # size
+    addi $a2, $a2, 1
+    move $a3, $s3            # color
+    jal  draw_char_g
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'G'
+    move $a0, $s0
+    addi $a0, $a0, 1
+    move $a1, $s1
+    move $a2, $s2
+    addi $a2, $a2, 1
+    move $a3, $s3
+    jal  draw_char_g
+    add  $s0, $s0, $s4       # x += spacing
+
+draw_word_gg_done:
+    # Epilogue - restore registers and return
+    lw   $s5, 0($sp)
+    lw   $s4, 4($sp)
+    lw   $s3, 8($sp)
+    lw   $s2, 12($sp)
+    lw   $s1, 16($sp)
+    lw   $s0, 20($sp)
+    lw   $ra, 24($sp)
+    addi $sp, $sp, 28
+    jr   $ra
+
+##########################################
+# draw_word_paused()
+# Draws the word "PAUSED" using individual character functions
+# Arranges letters with proper spacing
+##########################################
+draw_word_paused:
+    # Prologue - save return address and saved registers
+    addi $sp, $sp, -28
+    sw   $ra, 24($sp)
+    sw   $s0, 20($sp)        # current x position
+    sw   $s1, 16($sp)        # y position
+    sw   $s2, 12($sp)        # size
+    sw   $s3, 8($sp)         # color
+    sw   $s4, 4($sp)         # spacing
+    sw   $s5, 0($sp)         # letter counter
+
+    # Load word display parameters
+    lw   $s0, PAUSED_X       # starting x position
+    lw   $s1, PAUSED_Y       # y position
+    lw   $s2, PAUSED_SIZE    # size
+    lw   $s3, PAUSED_COLOR   # color
+    lw   $s4, PAUSED_SPACING # spacing between letters
+
+    # Draw 'P'
+    move $a0, $s0            # x
+    move $a1, $s1            # y
+    move $a2, $s2            # size
+    addi $a2, $a2, 1
+    move $a3, $s3            # color
+    jal  draw_char_p
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'A'
+    move $a0, $s0
+    addi $a0, $a0, 1
+    move $a1, $s1
+    move $a2, $s2
+    addi $a2, $a2, 1
+    move $a3, $s3
+    jal  draw_char_a
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'U'
+    move $a0, $s0
+    addi $a0, $a0, 2
+    move $a1, $s1
+    addi $a1, $a1, -4
+    move $a2, $s2
+    addi $a2, $a2, 1
+    move $a3, $s3
+    
+    jal  draw_char_u
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'S'
+    move $a0, $s0
+    addi $a0, $a0, 2
+    move $a1, $s1
+    move $a2, $s2
+    move $a3, $s3
+    jal  draw_char_s
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'E'
+    move $a0, $s0
+    addi $a0, $a0, 2
+    move $a1, $s1
+    move $a2, $s2
+    move $a3, $s3
+    jal  draw_char_e
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'D'
+    move $a0, $s0
+    addi $a0, $a0, -2
+    move $a1, $s1
+    move $a2, $s2
+    move $a3, $s3
+    jal  draw_char_d
+
+draw_word_paused_done:
+    # Epilogue - restore registers and return
+    lw   $s5, 0($sp)
+    lw   $s4, 4($sp)
+    lw   $s3, 8($sp)
+    lw   $s2, 12($sp)
+    lw   $s1, 16($sp)
+    lw   $s0, 20($sp)
+    lw   $ra, 24($sp)
+    addi $sp, $sp, 28
+    jr   $ra
+
+
+
+##########################################
+# remove_word_paused()
+# removes the word "PAUSED" using individual character functions
+# Arranges letters with proper spacing
+##########################################
+remove_word_paused:
+    # Prologue - save return address and saved registers
+    addi $sp, $sp, -28
+    sw   $ra, 24($sp)
+    sw   $s0, 20($sp)        # current x position
+    sw   $s1, 16($sp)        # y position
+    sw   $s2, 12($sp)        # size
+    sw   $s3, 8($sp)         # color
+    sw   $s4, 4($sp)         # spacing
+    sw   $s5, 0($sp)         # letter counter
+
+    # Load word display parameters
+    lw   $s0, PAUSED_X       # starting x position
+    lw   $s1, PAUSED_Y       # y position
+    lw   $s2, PAUSED_SIZE    # size
+    lw   $s3, COLOR_BG   # color
+    lw   $s4, PAUSED_SPACING # spacing between letters
+
+    # Draw 'P'
+    move $a0, $s0            # x
+    move $a1, $s1            # y
+    move $a2, $s2            # size
+    addi $a2, $a2, 1
+    move $a3, $s3            # color
+    jal  draw_char_p
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'A'
+    move $a0, $s0
+    addi $a0, $a0, 1
+    move $a1, $s1
+    move $a2, $s2
+    addi $a2, $a2, 1
+    move $a3, $s3
+    jal  draw_char_a
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'U'
+    move $a0, $s0
+    addi $a0, $a0, 2
+    move $a1, $s1
+    addi $a1, $a1, -4
+    move $a2, $s2
+    addi $a2, $a2, 1
+    move $a3, $s3
+    
+    jal  draw_char_u
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'S'
+    move $a0, $s0
+    addi $a0, $a0, 2
+    move $a1, $s1
+    move $a2, $s2
+    move $a3, $s3
+    jal  draw_char_s
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'E'
+    move $a0, $s0
+    addi $a0, $a0, 2
+    move $a1, $s1
+    move $a2, $s2
+    move $a3, $s3
+    jal  draw_char_e
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'D'
+    move $a0, $s0
+    addi $a0, $a0, -2
+    move $a1, $s1
+    move $a2, $s2
+    move $a3, $s3
+    jal  draw_char_d
+
+remove_word_paused_done:
+    # Epilogue - restore registers and return
+    lw   $s5, 0($sp)
+    lw   $s4, 4($sp)
+    lw   $s3, 8($sp)
+    lw   $s2, 12($sp)
+    lw   $s1, 16($sp)
+    lw   $s0, 20($sp)
+    lw   $ra, 24($sp)
+    addi $sp, $sp, 28
+    jr   $ra
