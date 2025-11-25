@@ -59,12 +59,12 @@ SCORE_SPACING: .word 6
 
 
 #SCORE_VALUE Display Parameters
-SCORE_VALUE_X: .word 5
+SCORE_VALUE_X: .word 40
 SCORE_VALUE_Y: .word 40
 SCORE_VALUE_SIZE: .word 2
 SCORE_VALUE_COLOR: .word 0x00FFFFFF
 SCORE_VALUE_SPACING: .word 6
-SCORE_VALUE_DIGIT: .word 1
+SCORE_VALUE_DIGIT: .word 4
 SCORE_VALUE_VALUE: .word 0
 
 char_a_pattern: .word 783  # 783 = 1100001111 in binary
@@ -901,6 +901,7 @@ init_game:
     jal  init_column    # position + random colours
     jal  music_init     # start background music
     jal  draw_word_score
+    jal draw_score
     lw   $ra, 0($sp)
     addi $sp, $sp, 4
     jr   $ra
@@ -1792,7 +1793,9 @@ game_loop:
 
     # 4. Redraw everything based on updated state
     jal draw_scene
-
+    
+    jal draw_score
+    
     # 5. Advance music timer and loop notes
     jal music_tick
 
