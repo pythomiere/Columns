@@ -76,6 +76,7 @@ GEM_COLOURS:
 # Color for background color
 COLOR_BG:   .word 0x000000   # black for empty cells
 COLOR_WALL: .word 0x404040   # dark gray for walls
+COLOR_GHOST: .word 0x202020  # outline color for landing preview (not a gem)
 
 # Direction vectors: (dx, dy) for 8 directions (up, up-right, right, down-right, down, down-left, left, up-left)
 DIRECTION_VECTORS:
@@ -254,6 +255,13 @@ CUR_COL_X:  .word 0 # grid column of the whole column
 CUR_COL_Y:  .word 0 # grid row of the TOP 
 
 Cur_Col_Is_Landing: .word 0 # 1=landing, 0=not landing
+CUR_COL_ID: .word 0          # incremented each time a new falling column spawns
+
+# Ghost preview state
+GHOST_ACTIVE: .word 0        # 1 if a ghost outline is currently drawn
+GHOST_X: .word 0             # grid x of ghost outline
+GHOST_Y: .word 0             # top grid y of ghost outline
+GHOST_COL_ID: .word -1       # which falling column the ghost belongs to
 
 # Gravity access table - marks which columns need gravity handling
 # .align 2                    # Ensure word alignment
@@ -570,6 +578,11 @@ init_column:
     sw   $s1, 4($sp)
     sw   $s2, 0($sp)
 
+    # Initialize column id and clear ghost state
+    li   $t2, 1
+    sw   $t2, CUR_COL_ID
+    sw   $zero, GHOST_ACTIVE
+
     # Set starting position
     lw   $t0, GRID_COLS
     sra  $t0, $t0, 1          # middle_col = GRID_COLS / 2
@@ -611,6 +624,12 @@ create_new_column:
     sw   $ra, 8($sp)
     sw   $s0, 4($sp)
     sw   $s1, 0($sp)
+
+    # Advance column id and clear ghost for the new falling piece
+    lw   $t8, CUR_COL_ID
+    addi $t8, $t8, 1
+    sw   $t8, CUR_COL_ID
+    sw   $zero, GHOST_ACTIVE
 
     # Set starting position to middle column, top row
     lw   $s0, GRID_COLS
@@ -855,6 +874,147 @@ draw_column:
     lw   $ra, 12($sp)
     addi $sp, $sp, 16
     jr   $ra
+
+##########################################
+# compute_drop_target()
+# Returns the top y position where the current column would land
+# Output: $v0 = landing top y
+##########################################
+compute_drop_target:
+    addi $sp, $sp, -24
+    sw   $ra, 20($sp)
+    sw   $s0, 16($sp)
+    sw   $s1, 12($sp)
+    sw   $s2, 8($sp)
+    sw   $s3, 4($sp)
+    sw   $s4, 0($sp)
+
+    lw   $s0, CUR_COL_X      # column x
+    lw   $s1, CUR_COL_Y      # current top y
+    lw   $s2, GRID_ROWS
+    addi $s2, $s2, -1        # bottom wall row
+    move $s3, $s1            # candidate top y
+
+drop_target_loop:
+    addi $t0, $s3, 3         # next bottom row if we move down
+    beq  $t0, $s2, drop_target_done   # would hit bottom wall
+
+    # Check cell directly below next bottom gem
+    move $a0, $s0
+    move $a1, $t0
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    beq  $v0, 1, drop_target_done     # would land on a gem
+
+    addi $s3, $s3, 1         # safe to move down one row
+    j    drop_target_loop
+
+drop_target_done:
+    move $v0, $s3
+
+    lw   $s4, 0($sp)
+    lw   $s3, 4($sp)
+    lw   $s2, 8($sp)
+    lw   $s1, 12($sp)
+    lw   $s0, 16($sp)
+    lw   $ra, 20($sp)
+    addi $sp, $sp, 24
+    jr   $ra
+
+##########################################
+# clear_ghost_column()
+# Clears the previously drawn ghost outline if it belongs to the current column
+##########################################
+clear_ghost_column:
+    addi $sp, $sp, -16
+    sw   $ra, 12($sp)
+    sw   $s0, 8($sp)
+    sw   $s1, 4($sp)
+    sw   $s2, 0($sp)
+
+    lw   $t0, GHOST_ACTIVE
+    beq  $t0, $zero, cgc_done
+
+    lw   $t1, GHOST_COL_ID
+    lw   $t2, CUR_COL_ID
+    bne  $t1, $t2, cgc_done      # don't clear ghosts from previous columns
+
+    lw   $s0, GHOST_X
+    lw   $s1, GHOST_Y
+    lw   $a2, COLOR_BG          # background color
+
+    # Clear top cell
+    move $a0, $s0
+    move $a1, $s1
+    jal  set_cell_color
+
+    # Clear middle cell
+    move $a0, $s0
+    addi $a1, $s1, 1
+    jal  set_cell_color
+
+    # Clear bottom cell
+    move $a0, $s0
+    addi $a1, $s1, 2
+    jal  set_cell_color
+
+    # Mark ghost as cleared
+    sw   $zero, GHOST_ACTIVE
+
+cgc_done:
+    lw   $s2, 0($sp)
+    lw   $s1, 4($sp)
+    lw   $s0, 8($sp)
+    lw   $ra, 12($sp)
+    addi $sp, $sp, 16
+    jr   $ra
+
+##########################################
+# draw_ghost_column(top_y)
+# Draws the ghost outline at predicted landing position
+#   $a0 = top y position for the ghost
+##########################################
+draw_ghost_column:
+    addi $sp, $sp, -16
+    sw   $ra, 12($sp)
+    sw   $s0, 8($sp)
+    sw   $s1, 4($sp)
+    sw   $s2, 0($sp)
+
+    lw   $s0, CUR_COL_X      # x position
+    move $s1, $a0            # top y position
+    lw   $a2, COLOR_GHOST
+
+    # Draw top
+    move $a0, $s0
+    move $a1, $s1
+    jal  set_cell_color
+
+    # Draw middle
+    move $a0, $s0
+    addi $a1, $s1, 1
+    jal  set_cell_color
+
+    # Draw bottom
+    move $a0, $s0
+    addi $a1, $s1, 2
+    jal  set_cell_color
+
+    # Persist ghost state
+    sw   $s0, GHOST_X
+    sw   $s1, GHOST_Y
+    li   $t0, 1
+    sw   $t0, GHOST_ACTIVE
+    lw   $t1, CUR_COL_ID
+    sw   $t1, GHOST_COL_ID
+
+    lw   $s2, 0($sp)
+    lw   $s1, 4($sp)
+    lw   $s0, 8($sp)
+    lw   $ra, 12($sp)
+    addi $sp, $sp, 16
+    jr   $ra
     
 ##########################################
 # init_game()
@@ -920,8 +1080,14 @@ draw_scene:
     # jal draw_grid
 
     jal draw_walls
+    
+    # Update ghost outline for current falling column
+    jal clear_ghost_column
+    jal compute_drop_target
+    move $a0, $v0
+    jal draw_ghost_column
 
-
+    # Draw active column last so it overwrites ghost where they overlap
     jal draw_column
 
     lw   $ra, 0($sp)
