@@ -273,6 +273,14 @@ Auto_Fall_Counter: .word 0
 
 Auto_Fall_Cycle_Increment: .word 50
 
+# Difficulty settings (auto-fall thresholds)
+Diff_Threshold_Easy:   .word 1200
+Diff_Threshold_Medium: .word 900
+Diff_Threshold_Hard:   .word 600
+
+diff_prompt: .asciiz "Select difficulty: 1=Easy, 2=Medium, 3=Hard\n"
+.align 2                   # realign following word data
+
 # Initial stack pointer snapshot (used for clean restarts)
 INIT_SP: .word 0
 
@@ -1982,12 +1990,72 @@ clear_chain_stack:
     jr   $ra
 
 ############################################################
+# select_difficulty()
+#   - Displays the prompt and waits for key 1/2/3
+#   - Sets Auto_Fall_Threshold based on choice
+############################################################
+select_difficulty:
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $t0, 0($sp)
+
+    # Print prompt
+    li   $v0, 4
+    la   $a0, diff_prompt
+    syscall
+
+sd_loop:
+    lw   $t0, ADDR_KBRD
+    lw   $t1, 0($t0)           # key ready?
+    beq  $t1, $zero, sd_wait
+
+    lw   $t2, 4($t0)           # key value
+
+    li   $t3, '1'
+    beq  $t2, $t3, sd_easy
+
+    li   $t3, '2'
+    beq  $t2, $t3, sd_medium
+
+    li   $t3, '3'
+    beq  $t2, $t3, sd_hard
+
+sd_wait:
+    li   $v0, 32
+    li   $a0, 50
+    syscall
+    j    sd_loop
+
+sd_easy:
+    lw   $t4, Diff_Threshold_Easy
+    j    sd_apply
+
+sd_medium:
+    lw   $t4, Diff_Threshold_Medium
+    j    sd_apply
+
+sd_hard:
+    lw   $t4, Diff_Threshold_Hard
+
+sd_apply:
+    sw   $t4, Auto_Fall_Threshold
+    sw   $zero, Auto_Fall_Counter
+
+    lw   $t0, 0($sp)
+    lw   $ra, 4($sp)
+    addi $sp, $sp, 8
+    jr   $ra
+
+############################################################
 # Main program
 ############################################################
 main:
     # Save initial stack pointer for future resets
     la   $t0, INIT_SP
     sw   $sp, 0($t0)
+
+    # Choose difficulty before starting
+    jal  select_difficulty
 
     jal init_game
     
