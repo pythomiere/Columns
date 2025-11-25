@@ -11,8 +11,8 @@ Easy Feature 6 done
 
 Easy Feature 1 done
 
+Hard Feature 5 done
+
 Working:
 
 Easy Feature 2
-
-Hard Feature 5
