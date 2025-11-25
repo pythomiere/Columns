@@ -92,10 +92,10 @@ number_patterns:
     .word 235    # Pattern for digit 3
     .word 1304    # Pattern for digit 4
     .word 231    # Pattern for digit 5
-    .word 0x7D    # Pattern for digit 6
-    .word 0x07    # Pattern for digit 7
-    .word 0x7F    # Pattern for digit 8
-    .word 0x6F    # Pattern for digit 9
+    .word 499   # Pattern for digit 6
+    .word 1025    # Pattern for digit 7
+    .word 255    # Pattern for digit 8
+    .word 527    # Pattern for digit 9
 
 
 # Colors
