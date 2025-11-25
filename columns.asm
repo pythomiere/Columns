@@ -64,8 +64,8 @@ SCORE_VALUE_Y: .word 40
 SCORE_VALUE_SIZE: .word 2
 SCORE_VALUE_COLOR: .word 0x00FFFFFF
 SCORE_VALUE_SPACING: .word 6
-SCORE_VALUE_DIGIT: .word 6
-SCORE_VALUE_VALUE: .word 6
+SCORE_VALUE_DIGIT: .word 1
+SCORE_VALUE_VALUE: .word 0
 
 char_a_pattern: .word 783  # 783 = 1100001111 in binary
 char_b_pattern: .word 491  # 491 = 1111010111 in binary
@@ -95,7 +95,7 @@ number_patterns:
     .word 499   # Pattern for digit 6
     .word 1025    # Pattern for digit 7
     .word 255    # Pattern for digit 8
-    .word 527    # Pattern for digit 9
+    .word 719    # Pattern for digit 9
 
 
 # Colors
