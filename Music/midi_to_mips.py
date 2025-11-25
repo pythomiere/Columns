@@ -6,7 +6,7 @@ def json_to_assembly(filename):
         with open(filename, 'r') as f:
             data = json.load(f)
     except json.JSONDecodeError:
-        print("Error: The file provided is not valid JSON. Please ensure braces {} are balanced.")
+        print("Error: not valid JSON")
         return
 
     track = data['tracks'][0]
@@ -32,7 +32,6 @@ def json_to_assembly(filename):
         chunk_size = 8
         for i in range(0, len(data_list), chunk_size):
             chunk = data_list[i:i + chunk_size]
-            # Join numbers with commas
             line_str = ", ".join(map(str, chunk))
             print(f"    .word {line_str}")
         print("")
