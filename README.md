@@ -20,3 +20,7 @@ Easy Feature 4 done
 Working:
 
 Easy Feature 2
+
+Hard Feature 1
+
+Easy Feature 10
