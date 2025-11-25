@@ -247,7 +247,7 @@ Auto_Fall_Cycle_Increment: .word 50
 # Stack Implementation for Chain Reaction System
 # Two stacks: Chain_Reax_Stack_X and Chain_Reax_Stack_Y
 # Must always push/pop both X and Y together
-# Stack size: GRID_COLS * GRID_ROWS = 6 * 13 = 78
+# Stack size: GRID_COLS * GRID_ROWS = 8 * 16 = 128
 #----------------
 Chain_Reax_Stack_X: .word -1:320    # Stack for X coordinates
 Chain_Reax_Stack_Y: .word -1:320    # Stack for Y coordinates  
@@ -1596,8 +1596,8 @@ push_chain_stack:
     la   $t0, Chain_Reax_Stack_Ptr
     lw   $t1, 0($t0)               # $t1 = current stack pointer
     
-    # Check if stack is full (pointer >= 78)
-    li   $t2, 78
+    # Check if stack is full (pointer >= 128)
+    li   $t2, 128
     bge  $t1, $t2, push_stack_full
     
     # Calculate address for X stack
