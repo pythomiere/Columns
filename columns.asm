@@ -10,8 +10,8 @@
 ######################## Bitmap Display Configuration ########################
 # - Unit width in pixels:       8
 # - Unit height in pixels:      8
-# - Display width in pixels:    256
-# - Display height in pixels:   256
+# - Display width in pixels:    512
+# - Display height in pixels:   512
 # - Base Address for Display:   0x10008000 ($gp)
 ##############################################################################
 
@@ -856,8 +856,10 @@ clear_screen:
     sw   $s0, 0($sp)
 
     lw   $t0, ADDR_DSPL      # base
-    li   $t1, 1024          # number of units
-    li   $t2, 0x000000       # black
+    li   $t1, BITMAP_WIDTH   # width
+    li   $t2, BITMAP_HEIGHT  # height
+    mul  $t1, $t1, $t2       # total units o the display
+    li   $t3, 0x000000       # black
 
     li   $s0, 0              # i = 0
 
@@ -865,9 +867,9 @@ clear_loop:
     beq  $s0, $t1, clear_done
 
     # address = base + i*4
-    sll  $t3, $s0, 2
-    add  $t4, $t0, $t3
-    sw   $t2, 0($t4)
+    sll  $t4, $s0, 2
+    add  $t5, $t0, $t4
+    sw   $t3, 0($t5)
 
     addi $s0, $s0, 1
     j    clear_loop
