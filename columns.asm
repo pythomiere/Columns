@@ -273,6 +273,9 @@ Auto_Fall_Counter: .word 0
 
 Auto_Fall_Cycle_Increment: .word 50
 
+# Initial stack pointer snapshot (used for clean restarts)
+INIT_SP: .word 0
+
 #-----------------
 # Stack Implementation for Chain Reaction System
 # Two stacks: Chain_Reax_Stack_X and Chain_Reax_Stack_Y
@@ -691,12 +694,43 @@ game_over:
     la   $a0, game_over_msg
     syscall
 
-    # Stop music before exiting
+    # Stop music and draw GG on screen
     jal  music_stop
     
     jal draw_word_gg
+
+    # Reset stack pointer before entering game over loop
+    la   $t0, INIT_SP
+    lw   $t1, 0($t0)
+    move $sp, $t1
+
+game_over_loop:
+    # Poll keyboard
+    lw   $t0, ADDR_KBRD
+    lw   $t1, 0($t0)
+    beq  $t1, $zero, game_over_wait
+
+    lw   $t2, 4($t0)
     
-    # Exit the program
+    # 'q' to quit
+    li   $t3, 'q'
+    beq  $t2, $t3, game_over_quit
+
+    # Space to retry
+    li   $t3, ' '
+    beq  $t2, $t3, game_over_retry
+
+game_over_wait:
+    li   $v0, 32
+    li   $a0, 50              # small delay to avoid busy waiting
+    syscall
+    j    game_over_loop
+
+game_over_retry:
+    jal  reset_game_state
+    j    game_loop
+
+game_over_quit:
     li   $v0, 10              # syscall 10 = exit
     syscall
 
@@ -1041,7 +1075,9 @@ clear_screen:
     sw   $s0, 0($sp)
 
     lw   $t0, ADDR_DSPL      # base
-    li   $t1, 1024          # number of units
+    lw   $t1, BITMAP_WIDTH
+    lw   $t2, BITMAP_HEIGHT
+    mul  $t1, $t1, $t2      # number of units = width * height
     li   $t2, 0x000000       # black
 
     li   $s0, 0              # i = 0
@@ -1061,6 +1097,67 @@ clear_done:
     lw   $s0, 0($sp)
     lw   $ra, 4($sp)
     addi $sp, $sp, 8
+    jr   $ra
+
+
+##########################################
+# reset_game_state()
+# Clears board/state and restarts game after a Game Over retry
+##########################################
+reset_game_state:
+    # Reset stack pointer to the initial snapshot for a clean call stack
+    la   $t0, INIT_SP
+    lw   $t1, 0($t0)
+    move $sp, $t1
+
+    # Prologue
+    addi $sp, $sp, -24
+    sw   $ra, 20($sp)
+    sw   $s0, 16($sp)
+    sw   $s1, 12($sp)
+    sw   $s2, 8($sp)
+    sw   $s3, 4($sp)
+    sw   $s4, 0($sp)
+
+    # Clear display contents
+    jal  clear_screen
+
+    # Reset chain reaction stack
+    jal  clear_chain_stack
+
+    # Reset gravity access table
+    la   $s0, Gravity_Access_Table
+    lw   $s1, GRID_COLS
+    move $s2, $zero
+
+reset_gravity_loop:
+    beq  $s2, $s1, reset_gravity_done
+    sw   $zero, 0($s0)
+    addi $s0, $s0, 4
+    addi $s2, $s2, 1
+    j    reset_gravity_loop
+
+reset_gravity_done:
+    # Reset counters/flags
+    sw   $zero, Auto_Fall_Counter
+    sw   $zero, Cur_Col_Is_Landing
+    sw   $zero, GHOST_ACTIVE
+    li   $t2, -1
+    sw   $t2, GHOST_COL_ID
+    sw   $zero, CUR_COL_ID
+
+    # Start a fresh game and draw the initial scene
+    jal  init_game
+    jal  draw_scene
+
+    # Epilogue
+    lw   $s4, 0($sp)
+    lw   $s3, 4($sp)
+    lw   $s2, 8($sp)
+    lw   $s1, 12($sp)
+    lw   $s0, 16($sp)
+    lw   $ra, 20($sp)
+    addi $sp, $sp, 24
     jr   $ra
 
 
@@ -1888,6 +1985,10 @@ clear_chain_stack:
 # Main program
 ############################################################
 main:
+    # Save initial stack pointer for future resets
+    la   $t0, INIT_SP
+    sw   $sp, 0($t0)
+
     jal init_game
     
     # Game on!
