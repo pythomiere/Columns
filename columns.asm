@@ -792,13 +792,15 @@ fin_handle_landing:
 ##############################################################################
 check_handle_matching:
     # Prologue - save return address and saved registers
-    addi $sp, $sp, -24
-    sw   $ra, 20($sp)
-    sw   $s0, 16($sp)        # Current x coordinate
-    sw   $s1, 12($sp)        # Current y coordinate  
-    sw   $s2, 8($sp)         # Base color for matching
-    sw   $s3, 4($sp)         # Direction counter
-    sw   $s4, 0($sp)         # Temporary for column index
+    addi $sp, $sp, -32
+    sw   $ra, 28($sp)
+    sw   $s0, 24($sp)        # Current x coordinate
+    sw   $s1, 20($sp)        # Current y coordinate  
+    sw   $s2, 16($sp)        # Base color for matching
+    sw   $s3, 12($sp)        # Direction counter
+    sw   $s4, 8($sp)         # Column index
+    sw   $s5, 4($sp)         # Temporary for table address
+    sw   $s6, 0($sp)         # Temporary for calculations
 
 main_chain_loop:
     # Check if chain stack is empty
@@ -857,42 +859,37 @@ next_direction:
 directions_done:
     # Step 1c: Handle gravity for all marked columns
     li   $s4, 0             # $s4 = column index
+    lw   $s6, GRID_COLS     # $s6 = GRID_COLS (preserved across calls)
 
 gravity_table_loop:
     # Check if we've processed all columns
-    lw   $t0, GRID_COLS
-    beq  $s4, $t0, main_chain_loop
+    beq  $s4, $s6, main_chain_loop
 
     # Check if this column is marked in Gravity_Access_Table
-    la   $t1, Gravity_Access_Table
+    la   $s5, Gravity_Access_Table  # $s5 = table base address
     
     # Verify column index is within bounds
     blt  $s4, $zero, next_gravity_column    # Skip if negative
-    bge  $s4, $t0, next_gravity_column      # Skip if >= GRID_COLS
+    bge  $s4, $s6, next_gravity_column      # Skip if >= GRID_COLS
     
-    sll  $t2, $s4, 2        # Multiply by 4 (word size)
-    add  $t1, $t1, $t2      # $t1 = address in table
+    sll  $t0, $s4, 2        # Multiply by 4 (word size) - $t0 safe for immediate use
+    add  $s5, $s5, $t0      # $s5 = address in table
     
     # Verify address is word-aligned (multiple of 4)
-    andi $t3, $t1, 0x3      # Check if address is word-aligned
-    bne  $t3, $zero, next_gravity_column  # Skip if not aligned
+    andi $t0, $s5, 0x3      # Check if address is word-aligned - $t0 safe for immediate use
+    bne  $t0, $zero, next_gravity_column  # Skip if not aligned
     
-    lw   $t3, 0($t1)        # $t3 = table value
+    lw   $t0, 0($s5)        # $t0 = table value - safe for immediate use
     
     # If column not marked, skip
-    beq  $t3, 0, next_gravity_column
+    beq  $t0, 0, next_gravity_column
 
     # Step 1c: Call handle_gravity for this column
     move $a0, $s4           # column index
     jal  handle_gravity
 
-    # Reset the table entry to 0 - with address validation
-    andi $t4, $t1, 0x3      # Check alignment again
-    beq  $t4, $zero, store_ok  # Only store if aligned
-    j    next_gravity_column   # Skip store if not aligned
-
-store_ok:
-    sw   $zero, 0($t1)
+    # Reset the table entry to 0
+    sw   $zero, 0($s5)
 
 next_gravity_column:
     addi $s4, $s4, 1        # Move to next column
@@ -900,13 +897,15 @@ next_gravity_column:
 
 chain_reaction_done:
     # Epilogue - restore registers and return
-    lw   $s4, 0($sp)
-    lw   $s3, 4($sp)
-    lw   $s2, 8($sp)
-    lw   $s1, 12($sp)
-    lw   $s0, 16($sp)
-    lw   $ra, 20($sp)
-    addi $sp, $sp, 24
+    lw   $s6, 0($sp)
+    lw   $s5, 4($sp)
+    lw   $s4, 8($sp)
+    lw   $s3, 12($sp)
+    lw   $s2, 16($sp)
+    lw   $s1, 20($sp)
+    lw   $s0, 24($sp)
+    lw   $ra, 28($sp)
+    addi $sp, $sp, 32
     jr   $ra
 
 ##############################################################################
