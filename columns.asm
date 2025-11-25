@@ -43,22 +43,32 @@ PAUSED_SIZE: .word 3
 PAUSED_COLOR: .word 0x00FFFFFF
 PAUSED_SPACING: .word 10
 
-#Pause Display Parameters
+#GG Display Parameters
 GG_X: .word 25
 GG_Y: .word 20
 GG_SIZE: .word 3
 GG_COLOR: .word 0x00FFFFFF
 GG_SPACING: .word 12
 
+#SCORE Display Parameters
+SCORE_X: .word 5
+SCORE_Y: .word 40
+SCORE_SIZE: .word 2
+SCORE_COLOR: .word 0x00FFFFFF
+SCORE_SPACING: .word 6
+
 char_a_pattern: .word 783  # 783 = 1100001111 in binary
 char_b_pattern: .word 491  # 491 = 1111010111 in binary
-
-char_d_pattern: .word 1666 #1666
+char_c_pattern: .word 451  # 451 = 111000011
+char_d_pattern: .word 1666 # 1666
 char_e_pattern: .word 465
 
-char_g_pattern: .word 483 #483 = 111100011
+char_g_pattern: .word 483  # 483 = 111100011
 
+char_o_pattern: .word 963  # 963 = 1111000011
 char_p_pattern: .word 271
+
+char_r_pattern: .word 303  # 303 = 100101111
 
 char_s_pattern: .word 231
 
@@ -76,7 +86,6 @@ GEM_COLOURS:
 # Color for background color
 COLOR_BG:   .word 0x000000   # black for empty cells
 COLOR_WALL: .word 0x404040   # dark gray for walls
-COLOR_GHOST: .word 0x202020  # outline color for landing preview (not a gem)
 
 # Direction vectors: (dx, dy) for 8 directions (up, up-right, right, down-right, down, down-left, left, up-left)
 DIRECTION_VECTORS:
@@ -255,13 +264,6 @@ CUR_COL_X:  .word 0 # grid column of the whole column
 CUR_COL_Y:  .word 0 # grid row of the TOP 
 
 Cur_Col_Is_Landing: .word 0 # 1=landing, 0=not landing
-CUR_COL_ID: .word 0          # incremented each time a new falling column spawns
-
-# Ghost preview state
-GHOST_ACTIVE: .word 0        # 1 if a ghost outline is currently drawn
-GHOST_X: .word 0             # grid x of ghost outline
-GHOST_Y: .word 0             # top grid y of ghost outline
-GHOST_COL_ID: .word -1       # which falling column the ghost belongs to
 
 # Gravity access table - marks which columns need gravity handling
 # .align 2                    # Ensure word alignment
@@ -578,11 +580,6 @@ init_column:
     sw   $s1, 4($sp)
     sw   $s2, 0($sp)
 
-    # Initialize column id and clear ghost state
-    li   $t2, 1
-    sw   $t2, CUR_COL_ID
-    sw   $zero, GHOST_ACTIVE
-
     # Set starting position
     lw   $t0, GRID_COLS
     sra  $t0, $t0, 1          # middle_col = GRID_COLS / 2
@@ -624,12 +621,6 @@ create_new_column:
     sw   $ra, 8($sp)
     sw   $s0, 4($sp)
     sw   $s1, 0($sp)
-
-    # Advance column id and clear ghost for the new falling piece
-    lw   $t8, CUR_COL_ID
-    addi $t8, $t8, 1
-    sw   $t8, CUR_COL_ID
-    sw   $zero, GHOST_ACTIVE
 
     # Set starting position to middle column, top row
     lw   $s0, GRID_COLS
@@ -874,147 +865,6 @@ draw_column:
     lw   $ra, 12($sp)
     addi $sp, $sp, 16
     jr   $ra
-
-##########################################
-# compute_drop_target()
-# Returns the top y position where the current column would land
-# Output: $v0 = landing top y
-##########################################
-compute_drop_target:
-    addi $sp, $sp, -24
-    sw   $ra, 20($sp)
-    sw   $s0, 16($sp)
-    sw   $s1, 12($sp)
-    sw   $s2, 8($sp)
-    sw   $s3, 4($sp)
-    sw   $s4, 0($sp)
-
-    lw   $s0, CUR_COL_X      # column x
-    lw   $s1, CUR_COL_Y      # current top y
-    lw   $s2, GRID_ROWS
-    addi $s2, $s2, -1        # bottom wall row
-    move $s3, $s1            # candidate top y
-
-drop_target_loop:
-    addi $t0, $s3, 3         # next bottom row if we move down
-    beq  $t0, $s2, drop_target_done   # would hit bottom wall
-
-    # Check cell directly below next bottom gem
-    move $a0, $s0
-    move $a1, $t0
-    jal  check_cell_color
-    move $a0, $v0
-    jal  is_gem_color
-    beq  $v0, 1, drop_target_done     # would land on a gem
-
-    addi $s3, $s3, 1         # safe to move down one row
-    j    drop_target_loop
-
-drop_target_done:
-    move $v0, $s3
-
-    lw   $s4, 0($sp)
-    lw   $s3, 4($sp)
-    lw   $s2, 8($sp)
-    lw   $s1, 12($sp)
-    lw   $s0, 16($sp)
-    lw   $ra, 20($sp)
-    addi $sp, $sp, 24
-    jr   $ra
-
-##########################################
-# clear_ghost_column()
-# Clears the previously drawn ghost outline if it belongs to the current column
-##########################################
-clear_ghost_column:
-    addi $sp, $sp, -16
-    sw   $ra, 12($sp)
-    sw   $s0, 8($sp)
-    sw   $s1, 4($sp)
-    sw   $s2, 0($sp)
-
-    lw   $t0, GHOST_ACTIVE
-    beq  $t0, $zero, cgc_done
-
-    lw   $t1, GHOST_COL_ID
-    lw   $t2, CUR_COL_ID
-    bne  $t1, $t2, cgc_done      # don't clear ghosts from previous columns
-
-    lw   $s0, GHOST_X
-    lw   $s1, GHOST_Y
-    lw   $a2, COLOR_BG          # background color
-
-    # Clear top cell
-    move $a0, $s0
-    move $a1, $s1
-    jal  set_cell_color
-
-    # Clear middle cell
-    move $a0, $s0
-    addi $a1, $s1, 1
-    jal  set_cell_color
-
-    # Clear bottom cell
-    move $a0, $s0
-    addi $a1, $s1, 2
-    jal  set_cell_color
-
-    # Mark ghost as cleared
-    sw   $zero, GHOST_ACTIVE
-
-cgc_done:
-    lw   $s2, 0($sp)
-    lw   $s1, 4($sp)
-    lw   $s0, 8($sp)
-    lw   $ra, 12($sp)
-    addi $sp, $sp, 16
-    jr   $ra
-
-##########################################
-# draw_ghost_column(top_y)
-# Draws the ghost outline at predicted landing position
-#   $a0 = top y position for the ghost
-##########################################
-draw_ghost_column:
-    addi $sp, $sp, -16
-    sw   $ra, 12($sp)
-    sw   $s0, 8($sp)
-    sw   $s1, 4($sp)
-    sw   $s2, 0($sp)
-
-    lw   $s0, CUR_COL_X      # x position
-    move $s1, $a0            # top y position
-    lw   $a2, COLOR_GHOST
-
-    # Draw top
-    move $a0, $s0
-    move $a1, $s1
-    jal  set_cell_color
-
-    # Draw middle
-    move $a0, $s0
-    addi $a1, $s1, 1
-    jal  set_cell_color
-
-    # Draw bottom
-    move $a0, $s0
-    addi $a1, $s1, 2
-    jal  set_cell_color
-
-    # Persist ghost state
-    sw   $s0, GHOST_X
-    sw   $s1, GHOST_Y
-    li   $t0, 1
-    sw   $t0, GHOST_ACTIVE
-    lw   $t1, CUR_COL_ID
-    sw   $t1, GHOST_COL_ID
-
-    lw   $s2, 0($sp)
-    lw   $s1, 4($sp)
-    lw   $s0, 8($sp)
-    lw   $ra, 12($sp)
-    addi $sp, $sp, 16
-    jr   $ra
     
 ##########################################
 # init_game()
@@ -1026,7 +876,7 @@ init_game:
 
     jal  init_column    # position + random colours
     jal  music_init     # start background music
-
+    jal  draw_word_score
     lw   $ra, 0($sp)
     addi $sp, $sp, 4
     jr   $ra
@@ -1080,14 +930,8 @@ draw_scene:
     # jal draw_grid
 
     jal draw_walls
-    
-    # Update ghost outline for current falling column
-    jal clear_ghost_column
-    jal compute_drop_target
-    move $a0, $v0
-    jal draw_ghost_column
 
-    # Draw active column last so it overwrites ghost where they overlap
+
     jal draw_column
 
     lw   $ra, 0($sp)
@@ -2929,6 +2773,86 @@ draw_char_g:
     addi $sp, $sp, 4
     jr   $ra
 
+
+##########################################
+# draw_char_c(x, y, size, color)
+# Draws the letter 'C' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_c:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_c_pattern  # Load D pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+
+##########################################
+# draw_char_o(x, y, size, color)
+# Draws the letter 'O' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_o:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_o_pattern  # Load D pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+##########################################
+# draw_char_r(x, y, size, color)
+# Draws the letter 'R' using 11-segment display
+# Input: $a0 = x, $a1 = y, $a2 = size, $a3 = color
+##########################################
+draw_char_r:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Push line code onto stack
+    addi $sp, $sp, -4
+    lw   $t0, char_r_pattern  # Load D pattern from memory
+    sw   $t0, 0($sp)
+    
+    # Call draw_11seg
+    jal  draw_11seg
+    
+    # Clean up stack
+    addi $sp, $sp, 4
+    
+    # Epilogue
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
 ##########################################
 # draw_word_gg()
 # Draws the word "GG" using individual character functions
@@ -2982,6 +2906,104 @@ draw_word_gg_done:
     lw   $ra, 24($sp)
     addi $sp, $sp, 28
     jr   $ra
+    
+
+##########################################
+# draw_word_score()
+# Draws the word "SCORE" using individual character functions
+# Arranges letters with proper spacing
+##########################################
+draw_word_score:
+    # Prologue - save return address and saved registers
+    addi $sp, $sp, -28
+    sw   $ra, 24($sp)
+    sw   $s0, 20($sp)        # current x position
+    sw   $s1, 16($sp)        # y position
+    sw   $s2, 12($sp)        # size
+    sw   $s3, 8($sp)         # color
+    sw   $s4, 4($sp)         # spacing
+    sw   $s5, 0($sp)         # letter counter
+
+    # Load word display parameters
+    lw   $s0, SCORE_X       # starting x position
+    lw   $s1, SCORE_Y       # y position
+    lw   $s2, SCORE_SIZE    # size
+    lw   $s3, SCORE_COLOR   # color
+    lw   $s4, SCORE_SPACING # spacing between letters
+
+    # Draw 'S'
+    move $a0, $s0            # x
+    addi $a0, $a0, 0         # individual modify for x
+    move $a1, $s1            # y
+    addi $a1, $a1, 0         # individual modify for y
+    move $a2, $s2            # size
+    addi $a2, $a2, 0         # individual modify for size
+    move $a3, $s3            # color
+    # addi $a3, $zero, 0x000000  # individual modify for color
+    jal  draw_char_s
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'C'
+    move $a0, $s0            # x
+    addi $a0, $a0, 0         # individual modify for x
+    move $a1, $s1            # y
+    addi $a1, $a1, 0         # individual modify for y
+    move $a2, $s2            # size
+    addi $a2, $a2, 0         # individual modify for size
+    move $a3, $s3            # color
+    # addi $a3, $zero, 0x000000  # individual modify for color
+    jal  draw_char_c
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'O'
+    move $a0, $s0            # x
+    addi $a0, $a0, 0         # individual modify for x
+    move $a1, $s1            # y
+    addi $a1, $a1, 0         # individual modify for y
+    move $a2, $s2            # size
+    addi $a2, $a2, 0         # individual modify for size
+    move $a3, $s3            # color
+    # addi $a3, $zero, 0x000000  # individual modify for color
+    jal  draw_char_o
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'R'
+    move $a0, $s0            # x
+    addi $a0, $a0, 1         # individual modify for x
+    move $a1, $s1            # y
+    addi $a1, $a1, 0         # individual modify for y
+    move $a2, $s2            # size
+    addi $a2, $a2, 1         # individual modify for size
+    move $a3, $s3            # color
+    # addi $a3, $zero, 0x000000  # individual modify for color
+    jal  draw_char_r
+    add  $s0, $s0, $s4       # x += spacing
+
+    # Draw 'E'
+    move $a0, $s0            # x
+    addi $a0, $a0, 2         # individual modify for x
+    move $a1, $s1            # y
+    addi $a1, $a1, 0         # individual modify for y
+    move $a2, $s2            # size
+    addi $a2, $a2, 0         # individual modify for size
+    move $a3, $s3            # color
+    # addi $a3, $zero, 0x000000  # individual modify for color
+    jal  draw_char_e
+    add  $s0, $s0, $s4       # x += spacing
+
+
+draw_word_score_done:
+    # Epilogue - restore registers and return
+    lw   $s5, 0($sp)
+    lw   $s4, 4($sp)
+    lw   $s3, 8($sp)
+    lw   $s2, 12($sp)
+    lw   $s1, 16($sp)
+    lw   $s0, 20($sp)
+    lw   $ra, 24($sp)
+    addi $sp, $sp, 28
+    jr   $ra
+
 
 ##########################################
 # draw_word_paused()
