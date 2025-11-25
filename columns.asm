@@ -1435,26 +1435,49 @@ main:
 #   - Sleep a little
 ############################################################
 game_loop:
-    # 0. Check if current column is landing on something
+    
+    # 0. Handle keyboard input (may change CUR_COL_X/Y or colours)
+    jal handle_input
+    
+    # 1. Redraw everything based on updated state
+    jal draw_scene
+    
+    # 2. Check if current column is landing on something
     jal check_landing
 
-    # 1. Handle landing if Cur_Col_Is_Landing is 1
+    # 3. Handle landing if Cur_Col_Is_Landing is 1
     jal handle_landing
 
-    # 2. Handle keyboard input (may change CUR_COL_X/Y or colours)
-    jal handle_input
-
-    # 3. Redraw everything based on updated state
+    # 4. Redraw everything based on updated state
     jal draw_scene
 
-    # 4. Sleep for a short time (60 fps)
+    # 5. Sleep for a short time (60 fps)
     li  $v0, 32
     li  $a0, 16
     syscall
 
-    # 5. Repeat
+    # 6. Repeat
     j   game_loop
+
+############################################################
+# pause_loop:
+#   - Wait in loop until 'p' is pressed to resume or 'q' to quit
+############################################################
+pause_loop:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+pause_wait:
+    # Call pause input handler
+    jal handle_pause_input
     
+    # Small delay to avoid busy waiting
+    li   $v0, 32
+    li   $a0, 50           # 50ms delay for pause loop
+    syscall
+    
+    j    pause_wait
     
 ##########################################
 # handle_input
@@ -1499,7 +1522,11 @@ handle_input:
     #'s'
     li   $t3, 's'
     beq  $t2, $t3, hi_down
-
+    
+    # 'p' - PAUSE GAME
+    li   $t3, 'p'
+    beq  $t2, $t3, hi_pause
+    
     # 'q'
     li   $t3, 'q'
     beq  $t2, $t3, hi_quit
@@ -1582,7 +1609,11 @@ hi_shuffle:
     sw   $t1, CUR_COL2
 
     j    hi_done
-    
+
+hi_pause:
+    # Jump to pause loop (this will handle returning from pause)
+    j pause_loop
+
 hi_quit:
     li  $v0, 10
     syscall
@@ -1594,6 +1625,42 @@ hi_done:
     lw   $ra, 12($sp)
     addi $sp, $sp, 16
     jr   $ra
+
+
+##########################################
+# handle_pause_input
+#   - Handles input during pause state
+#   - p: resume game
+#   - q: quit game
+##########################################
+handle_pause_input:
+    # Prologue
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+    
+    # Load keyboard base addr
+    lw   $t0, ADDR_KBRD
+    
+    # Check "key ready"
+    lw   $t1, 0($t0)
+    beq  $t1, $zero, pause_input_done
+
+    # A key was pressed
+    lw   $t2, 4($t0)
+    
+    # 'p' - RESUME GAME
+    li   $t3, 'p'
+    beq  $t2, $t3, game_loop
+
+    # 'q' - QUIT GAME
+    li   $t3, 'q'
+    beq  $t2, $t3, hi_quit
+
+pause_input_done:
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
 
 ##########################################
 # check_column_collision(x, y)
