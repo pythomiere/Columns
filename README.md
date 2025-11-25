@@ -13,8 +13,8 @@ Easy Feature 1 done
 
 Hard Feature 5 done
 
+Easy Feature 7 done
+
 Working:
 
 Easy Feature 2
-
-Easy Feature 6 (display)
