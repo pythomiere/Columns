@@ -9,8 +9,10 @@ Milestone 3 done
 
 Easy Feature 6 done
 
+Easy Feature 1 done
+
 Working:
 
-Easy Feature 1
+Easy Feature 2
 
 Hard Feature 5
