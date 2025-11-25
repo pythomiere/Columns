@@ -288,6 +288,18 @@ CUR_COL_X:  .word 0 # grid column of the whole column
 CUR_COL_Y:  .word 0 # grid row of the TOP 
 
 Cur_Col_Is_Landing: .word 0 # 1=landing, 0=not landing
+CUR_COL_ID: .word 0          # incremented each time a new falling column spawns
+
+# Next-column preview buffer
+NEXT_COL0: .word 0       # top gem colour (preview)
+NEXT_COL1: .word 0       # middle gem colour (preview)
+NEXT_COL2: .word 0       # bottom gem colour (preview)
+
+# Ghost preview state
+GHOST_ACTIVE: .word 0        # 1 if a ghost outline is currently drawn
+GHOST_X: .word 0             # grid x of ghost outline
+GHOST_Y: .word 0             # top grid y of ghost outline
+GHOST_COL_ID: .word -1       # which falling column the ghost belongs to
 
 # Gravity access table - marks which columns need gravity handling
 # .align 2                    # Ensure word alignment
@@ -298,6 +310,21 @@ Auto_Fall_Threshold: .word 1000
 Auto_Fall_Counter: .word 0
 
 Auto_Fall_Cycle_Increment: .word 50
+
+# Difficulty settings (auto-fall thresholds)
+Diff_Threshold_Easy:   .word 1200
+Diff_Threshold_Medium: .word 900
+Diff_Threshold_Hard:   .word 600
+
+diff_prompt: .asciiz "Select difficulty: 1=Easy, 2=Medium, 3=Hard\n"
+.align 2                   # realign following word data
+
+# Preview panel position (bitmap coordinates)
+PREVIEW_ROW: .word 8
+PREVIEW_COL: .word 40
+
+# Initial stack pointer snapshot (used for clean restarts)
+INIT_SP: .word 0
 
 #-----------------
 # Stack Implementation for Chain Reaction System
@@ -626,6 +653,9 @@ init_column:
     jal  get_random_colour
     sw   $v0, CUR_COL2
 
+    # Prepare preview for the upcoming column
+    jal  fill_next_column
+
     lw   $s2, 0($sp)
     lw   $s1, 4($sp)
     lw   $s0, 8($sp)
@@ -679,15 +709,18 @@ create_new_column:
     jal  is_gem_color
     beq  $v0, 1, game_over
     
-    # No collision - generate three random colors for the column
-    jal  get_random_colour
-    sw   $v0, CUR_COL0        # Top gem color
+    # No collision - load previewed colors for the new column
+    lw   $t0, NEXT_COL0
+    sw   $t0, CUR_COL0        # Top gem color
 
-    jal  get_random_colour
-    sw   $v0, CUR_COL1        # Middle gem color
+    lw   $t0, NEXT_COL1
+    sw   $t0, CUR_COL1        # Middle gem color
 
-    jal  get_random_colour
-    sw   $v0, CUR_COL2        # Bottom gem color
+    lw   $t0, NEXT_COL2
+    sw   $t0, CUR_COL2        # Bottom gem color
+
+    # Generate the following preview column
+    jal  fill_next_column
 
     # Epilogue
     lw   $s1, 0($sp)
@@ -706,12 +739,43 @@ game_over:
     la   $a0, game_over_msg
     syscall
 
-    # Stop music before exiting
+    # Stop music and draw GG on screen
     jal  music_stop
     
     jal draw_word_gg
+
+    # Reset stack pointer before entering game over loop
+    la   $t0, INIT_SP
+    lw   $t1, 0($t0)
+    move $sp, $t1
+
+game_over_loop:
+    # Poll keyboard
+    lw   $t0, ADDR_KBRD
+    lw   $t1, 0($t0)
+    beq  $t1, $zero, game_over_wait
+
+    lw   $t2, 4($t0)
     
-    # Exit the program
+    # 'q' to quit
+    li   $t3, 'q'
+    beq  $t2, $t3, game_over_quit
+
+    # Space to retry
+    li   $t3, ' '
+    beq  $t2, $t3, game_over_retry
+
+game_over_wait:
+    li   $v0, 32
+    li   $a0, 50              # small delay to avoid busy waiting
+    syscall
+    j    game_over_loop
+
+game_over_retry:
+    jal  reset_game_state
+    j    game_loop
+
+game_over_quit:
     li   $v0, 10              # syscall 10 = exit
     syscall
 
@@ -726,13 +790,34 @@ get_random_colour:
     li   $a0, 0        # RNG ID
     li   $a1, 6        # max = 6
     syscall            # result index in $a0
-
+    
     # compute address = GEM_COLOURS + index*4
     la   $t0, GEM_COLOURS
     sll  $t1, $a0, 2   # index * 4
     add  $t0, $t0, $t1
     lw   $v0, 0($t0)   # v0 = colour
 
+    jr   $ra
+
+##########################################
+# fill_next_column()
+# Generates a new random column into NEXT_COL*
+##########################################
+fill_next_column:
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+    jal  get_random_colour
+    sw   $v0, NEXT_COL0
+
+    jal  get_random_colour
+    sw   $v0, NEXT_COL1
+
+    jal  get_random_colour
+    sw   $v0, NEXT_COL2
+
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
     jr   $ra
 
 ##########################################
@@ -889,6 +974,191 @@ draw_column:
     lw   $ra, 12($sp)
     addi $sp, $sp, 16
     jr   $ra
+
+##########################################
+# draw_next_preview()
+# Draws the buffered next column in the preview panel
+##########################################
+draw_next_preview:
+    addi $sp, $sp, -20
+    sw   $ra, 16($sp)
+    sw   $s0, 12($sp)
+    sw   $s1, 8($sp)
+    sw   $s2, 4($sp)
+    sw   $s3, 0($sp)
+
+    lw   $s0, PREVIEW_ROW      # preview row (top)
+    lw   $s1, PREVIEW_COL      # preview column
+
+    # Top preview gem
+    move $a0, $s0
+    move $a1, $s1
+    lw   $s2, NEXT_COL0
+    move $a2, $s2
+    jal  draw_cell
+
+    # Middle preview gem
+    addi $a0, $s0, 1
+    move $a1, $s1
+    lw   $s3, NEXT_COL1
+    move $a2, $s3
+    jal  draw_cell
+
+    # Bottom preview gem
+    addi $a0, $s0, 2
+    move $a1, $s1
+    lw   $t0, NEXT_COL2
+    move $a2, $t0
+    jal  draw_cell
+
+    lw   $s3, 0($sp)
+    lw   $s2, 4($sp)
+    lw   $s1, 8($sp)
+    lw   $s0, 12($sp)
+    lw   $ra, 16($sp)
+    addi $sp, $sp, 20
+    jr   $ra
+
+##########################################
+# compute_drop_target()
+# Returns the top y position where the current column would land
+# Output: $v0 = landing top y
+##########################################
+compute_drop_target:
+    addi $sp, $sp, -24
+    sw   $ra, 20($sp)
+    sw   $s0, 16($sp)
+    sw   $s1, 12($sp)
+    sw   $s2, 8($sp)
+    sw   $s3, 4($sp)
+    sw   $s4, 0($sp)
+
+    lw   $s0, CUR_COL_X      # column x
+    lw   $s1, CUR_COL_Y      # current top y
+    lw   $s2, GRID_ROWS
+    addi $s2, $s2, -1        # bottom wall row
+    move $s3, $s1            # candidate top y
+
+drop_target_loop:
+    addi $t0, $s3, 3         # next bottom row if we move down
+    beq  $t0, $s2, drop_target_done   # would hit bottom wall
+
+    # Check cell directly below next bottom gem
+    move $a0, $s0
+    move $a1, $t0
+    jal  check_cell_color
+    move $a0, $v0
+    jal  is_gem_color
+    beq  $v0, 1, drop_target_done     # would land on a gem
+
+    addi $s3, $s3, 1         # safe to move down one row
+    j    drop_target_loop
+
+drop_target_done:
+    move $v0, $s3
+
+    lw   $s4, 0($sp)
+    lw   $s3, 4($sp)
+    lw   $s2, 8($sp)
+    lw   $s1, 12($sp)
+    lw   $s0, 16($sp)
+    lw   $ra, 20($sp)
+    addi $sp, $sp, 24
+    jr   $ra
+
+##########################################
+# clear_ghost_column()
+# Clears the previously drawn ghost outline if it belongs to the current column
+##########################################
+clear_ghost_column:
+    addi $sp, $sp, -16
+    sw   $ra, 12($sp)
+    sw   $s0, 8($sp)
+    sw   $s1, 4($sp)
+    sw   $s2, 0($sp)
+
+    lw   $t0, GHOST_ACTIVE
+    beq  $t0, $zero, cgc_done
+
+    lw   $t1, GHOST_COL_ID
+    lw   $t2, CUR_COL_ID
+    bne  $t1, $t2, cgc_done      # don't clear ghosts from previous columns
+
+    lw   $s0, GHOST_X
+    lw   $s1, GHOST_Y
+    lw   $a2, COLOR_BG          # background color
+
+    # Clear top cell
+    move $a0, $s0
+    move $a1, $s1
+    jal  set_cell_color
+
+    # Clear middle cell
+    move $a0, $s0
+    addi $a1, $s1, 1
+    jal  set_cell_color
+
+    # Clear bottom cell
+    move $a0, $s0
+    addi $a1, $s1, 2
+    jal  set_cell_color
+
+    # Mark ghost as cleared
+    sw   $zero, GHOST_ACTIVE
+
+cgc_done:
+    lw   $s2, 0($sp)
+    lw   $s1, 4($sp)
+    lw   $s0, 8($sp)
+    lw   $ra, 12($sp)
+    addi $sp, $sp, 16
+    jr   $ra
+
+##########################################
+# draw_ghost_column(top_y)
+# Draws the ghost outline at predicted landing position
+#   $a0 = top y position for the ghost
+##########################################
+draw_ghost_column:
+    addi $sp, $sp, -16
+    sw   $ra, 12($sp)
+    sw   $s0, 8($sp)
+    sw   $s1, 4($sp)
+    sw   $s2, 0($sp)
+
+    lw   $s0, CUR_COL_X      # x position
+    move $s1, $a0            # top y position
+    lw   $a2, COLOR_GHOST
+
+    # Draw top
+    move $a0, $s0
+    move $a1, $s1
+    jal  set_cell_color
+
+    # Draw middle
+    move $a0, $s0
+    addi $a1, $s1, 1
+    jal  set_cell_color
+
+    # Draw bottom
+    move $a0, $s0
+    addi $a1, $s1, 2
+    jal  set_cell_color
+
+    # Persist ghost state
+    sw   $s0, GHOST_X
+    sw   $s1, GHOST_Y
+    li   $t0, 1
+    sw   $t0, GHOST_ACTIVE
+    lw   $t1, CUR_COL_ID
+    sw   $t1, GHOST_COL_ID
+
+    lw   $s2, 0($sp)
+    lw   $s1, 4($sp)
+    lw   $s0, 8($sp)
+    lw   $ra, 12($sp)
+    addi $sp, $sp, 16
+    jr   $ra
     
 ##########################################
 # init_game()
@@ -916,7 +1186,9 @@ clear_screen:
     sw   $s0, 0($sp)
 
     lw   $t0, ADDR_DSPL      # base
-    li   $t1, 1024          # number of units
+    lw   $t1, BITMAP_WIDTH
+    lw   $t2, BITMAP_HEIGHT
+    mul  $t1, $t1, $t2      # number of units = width * height
     li   $t2, 0x000000       # black
 
     li   $s0, 0              # i = 0
@@ -939,6 +1211,67 @@ clear_done:
     jr   $ra
 
 
+##########################################
+# reset_game_state()
+# Clears board/state and restarts game after a Game Over retry
+##########################################
+reset_game_state:
+    # Reset stack pointer to the initial snapshot for a clean call stack
+    la   $t0, INIT_SP
+    lw   $t1, 0($t0)
+    move $sp, $t1
+
+    # Prologue
+    addi $sp, $sp, -24
+    sw   $ra, 20($sp)
+    sw   $s0, 16($sp)
+    sw   $s1, 12($sp)
+    sw   $s2, 8($sp)
+    sw   $s3, 4($sp)
+    sw   $s4, 0($sp)
+
+    # Clear display contents
+    jal  clear_screen
+
+    # Reset chain reaction stack
+    jal  clear_chain_stack
+
+    # Reset gravity access table
+    la   $s0, Gravity_Access_Table
+    lw   $s1, GRID_COLS
+    move $s2, $zero
+
+reset_gravity_loop:
+    beq  $s2, $s1, reset_gravity_done
+    sw   $zero, 0($s0)
+    addi $s0, $s0, 4
+    addi $s2, $s2, 1
+    j    reset_gravity_loop
+
+reset_gravity_done:
+    # Reset counters/flags
+    sw   $zero, Auto_Fall_Counter
+    sw   $zero, Cur_Col_Is_Landing
+    sw   $zero, GHOST_ACTIVE
+    li   $t2, -1
+    sw   $t2, GHOST_COL_ID
+    sw   $zero, CUR_COL_ID
+
+    # Start a fresh game and draw the initial scene
+    jal  init_game
+    jal  draw_scene
+
+    # Epilogue
+    lw   $s4, 0($sp)
+    lw   $s3, 4($sp)
+    lw   $s2, 8($sp)
+    lw   $s1, 12($sp)
+    lw   $s0, 16($sp)
+    lw   $ra, 20($sp)
+    addi $sp, $sp, 24
+    jr   $ra
+
+
 ##############################################################################
 # draw_scene()
 # Things that it does (Will add more later)
@@ -955,6 +1288,13 @@ draw_scene:
     # jal draw_grid
 
     jal draw_walls
+    jal draw_next_preview
+    
+    # Update ghost outline for current falling column
+    jal clear_ghost_column
+    jal compute_drop_target
+    move $a0, $v0
+    jal draw_ghost_column
 
 
     jal draw_column
@@ -1759,9 +2099,73 @@ clear_chain_stack:
     jr   $ra
 
 ############################################################
+# select_difficulty()
+#   - Displays the prompt and waits for key 1/2/3
+#   - Sets Auto_Fall_Threshold based on choice
+############################################################
+select_difficulty:
+    addi $sp, $sp, -8
+    sw   $ra, 4($sp)
+    sw   $t0, 0($sp)
+
+    # Print prompt
+    li   $v0, 4
+    la   $a0, diff_prompt
+    syscall
+
+sd_loop:
+    lw   $t0, ADDR_KBRD
+    lw   $t1, 0($t0)           # key ready?
+    beq  $t1, $zero, sd_wait
+
+    lw   $t2, 4($t0)           # key value
+
+    li   $t3, '1'
+    beq  $t2, $t3, sd_easy
+
+    li   $t3, '2'
+    beq  $t2, $t3, sd_medium
+
+    li   $t3, '3'
+    beq  $t2, $t3, sd_hard
+
+sd_wait:
+    li   $v0, 32
+    li   $a0, 50
+    syscall
+    j    sd_loop
+
+sd_easy:
+    lw   $t4, Diff_Threshold_Easy
+    j    sd_apply
+
+sd_medium:
+    lw   $t4, Diff_Threshold_Medium
+    j    sd_apply
+
+sd_hard:
+    lw   $t4, Diff_Threshold_Hard
+
+sd_apply:
+    sw   $t4, Auto_Fall_Threshold
+    sw   $zero, Auto_Fall_Counter
+
+    lw   $t0, 0($sp)
+    lw   $ra, 4($sp)
+    addi $sp, $sp, 8
+    jr   $ra
+
+############################################################
 # Main program
 ############################################################
 main:
+    # Save initial stack pointer for future resets
+    la   $t0, INIT_SP
+    sw   $sp, 0($t0)
+
+    # Choose difficulty before starting
+    jal  select_difficulty
+
     jal init_game
     
     # Game on!
